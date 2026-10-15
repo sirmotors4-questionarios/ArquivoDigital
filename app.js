@@ -49,7 +49,18 @@ if(selectedShelf)showShelf(selectedShelf);
 $("syncState").textContent=isDemo()?"● Modo demonstração":"● Ligação de consulta configurada";
 }
 function renderMap(){const group=$("shelfGroup").value;const map=$("shelfMap");map.replaceChildren();for(const s of configuredShelves.filter(s=>!group||s[0]===group)){const count=records.filter(r=>r["Prateleira"]===s).length;const btn=el("button",undefined,"shelf"+(count>0?" occupied":"")+(selectedShelf===s?" selected":""));btn.append(el("b",s),el("span",count+" posição(ões) ocupada(s)"));btn.addEventListener("click",()=>openShelf(s));map.append(btn)}}
-function openShelf(s){selectedShelf=s;show("mapa");renderMap();showShelf(s)}
+function scrollToArchiveElement(node){
+  if(!node)return;
+  const reduceMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  node.scrollIntoView({behavior:reduceMotion?'auto':'smooth',block:'start'});
+}
+function openShelf(s){
+  selectedShelf=s;
+  show("mapa");
+  renderMap();
+  showShelf(s);
+  requestAnimationFrame(()=>scrollToArchiveElement($("shelfDetail")));
+}
 function showShelf(s){$("shelfDetail").hidden=false;$("selectedShelf").textContent="Prateleira "+s;const root=$("shelfDocuments");root.replaceChildren();const found=sorted(records.filter(r=>r["Prateleira"]===s));if(!found.length){root.append(el("p","Nenhuma posição ocupada nesta prateleira.","empty"));return}const tbl=el("table"),head=el("thead"),body=el("tbody");const hr=el("tr");["Posição","Nome do ficheiro","Departamento","Período","Acções"].forEach(h=>hr.append(el("th",h)));head.append(hr);found.forEach(r=>{const tr=el("tr");[r["Posição"],r["Nome do Ficheiro"],r.Departamento,r["Período"]||computedPeriod(r)].forEach(t=>tr.append(el("td",t)));const td=el("td");td.append(actions(r));tr.append(td);body.append(tr)});tbl.append(head,body);root.append(tbl)}
 function actions(r){const span=el("div",undefined,"actions");const edit=el("button","Editar / Mover");edit.addEventListener("click",()=>editRow(r.ID));const remove=el("button","Eliminar","remove");remove.addEventListener("click",()=>askDelete(r.ID));span.append(edit,remove);return span}
 function computedPeriod(r){const a=trim(r["Ano Início"]),b=trim(r["Ano Fim"]);return a?(b&&b!==a?a+"–"+b:a):"—"}
@@ -85,6 +96,7 @@ $("docForm").addEventListener("submit",save);
 $("docForm").elements.prateleira.addEventListener("change",()=>updatePositionChoices());
 $("cancelEdit").addEventListener("click",()=>{clearForm();show("consulta")});
 $("resetForm").addEventListener("click",clearForm);
+$("backToShelf").addEventListener("click",()=>{const shelfButton=[...$("shelfMap").querySelectorAll(".shelf")].find(b=>b.querySelector("b")?.textContent===selectedShelf);scrollToArchiveElement(shelfButton||$("shelfMap"))});
 $("clearShelf").addEventListener("click",()=>{selectedShelf=null;$("shelfDetail").hidden=true;renderMap()});
 $("shelfGroup").addEventListener("change",renderMap);
 for(const id of ["filterSearch","filterDept","filterShelf","filterYear"])$(id).addEventListener("input",renderTable);
