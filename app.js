@@ -37,7 +37,7 @@ if(departments.includes(prevDept))depSelect.value=prevDept;
 const shelfSelect=$("docForm").elements.prateleira,prevShelf=shelfSelect.value;
 shelfSelect.replaceChildren(new Option("Seleccionar",""));
 configuredShelves.forEach(s=>shelfSelect.add(new Option(s,s)));
-if(configuredShelves.includes(prevShelf))shelfSelect.value=prevShelf;
+if(configuredShelves.includes(prevShelf))shelfSelect.value=prevShelf;\nupdatePositionChoices();
 $("shelfSummary").replaceChildren(...[...new Set(all.map(x=>x["Prateleira"]))].slice(0,10).map(s=>{const n=el("button",undefined,"shelf-item");n.style.width="100%";n.style.textAlign="left";n.append(el("span",s,"pill"),el("span",all.filter(r=>r["Prateleira"]===s).length+" documento(s)","grow"));n.addEventListener("click",()=>openShelf(s));return n}));
 if(!all.length)$("shelfSummary").replaceChildren(el("p","Sem documentos registados.","empty"));
 const rec=$("recentDocs");rec.replaceChildren(...[...all].sort((a,b)=>num(b.ID)-num(a.ID)).slice(0,7).map(r=>{const n=el("div",undefined,"recent-item");const box=el("div",undefined,"grow");box.append(el("strong",r["Nome do Ficheiro"]),el("small",r.Departamento+" · "+r["Prateleira"]+" / "+r["Posição"]));n.append(el("span","▤","pill"),box);return n}));if(!all.length)rec.append(el("p","Nenhum documento registado.","empty"));
@@ -51,8 +51,20 @@ function showShelf(s){$("shelfDetail").hidden=false;$("selectedShelf").textConte
 function actions(r){const span=el("div",undefined,"actions");const edit=el("button","Editar / Mover");edit.addEventListener("click",()=>editRow(r.ID));const remove=el("button","Eliminar","remove");remove.addEventListener("click",()=>askDelete(r.ID));span.append(edit,remove);return span}
 function computedPeriod(r){const a=trim(r["Ano Início"]),b=trim(r["Ano Fim"]);return a?(b&&b!==a?a+"–"+b:a):"—"}
 function renderTable(){const q=trim($("filterSearch").value).toLocaleLowerCase("pt"),dep=$("filterDept").value,shelf=$("filterShelf").value,year=num($("filterYear").value);const all=sorted(records).filter(r=>(!q||[r["Nome do Ficheiro"],r.Observações,r.Departamento,r["Prateleira"]].some(x=>trim(x).toLocaleLowerCase("pt").includes(q)))&&(!dep||r.Departamento===dep)&&(!shelf||r["Prateleira"]===shelf)&&(!year||(num(r["Ano Início"])<=year&&year<=num(r["Ano Fim"]||r["Ano Início"]))));$("filterCount").textContent=all.length+" resultado(s)";const root=$("docsBody");root.replaceChildren();for(const r of all){const tr=el("tr");const loc=el("td",r["Prateleira"]+" · Posição "+r["Posição"],"loc");const doc=el("td",r["Nome do Ficheiro"]);const depCell=el("td",r.Departamento);const period=el("td",r["Período"]||computedPeriod(r));const act=el("td");act.append(actions(r));tr.append(loc,doc,depCell,period,act);root.append(tr)}if(!all.length){const row=el("tr"),td=el("td","Nenhum documento encontrado.","empty");td.colSpan=5;row.append(td);root.append(row)}}
-function clearForm(){editID=null;$("docForm").reset();$("formTitle").textContent="Registar documento";$("saveBtn").textContent="Guardar registo"}
-function editRow(id){const r=records.find(x=>String(x.ID)===String(id));if(!r)return;editID=r.ID;const f=$("docForm").elements;f.nome.value=trim(r["Nome do Ficheiro"]);f.departamento.value=trim(r.Departamento);f.prateleira.value=trim(r["Prateleira"]);f.posicao.value=r["Posição"];f.anoInicio.value=r["Ano Início"];f.anoFim.value=r["Ano Fim"]||"";f.observacoes.value=r.Observações||"";$("formTitle").textContent="Editar / Reposicionar documento";$("saveBtn").textContent="Guardar alterações";show("novo")}
+function updatePositionChoices(preferred="") {
+  const fields=$("docForm").elements, shelf=trim(fields.prateleira.value);
+  const select=fields.posicao, current=String(preferred||select.value||"");
+  select.replaceChildren(new Option(shelf?"Seleccionar posição livre":"Seleccione primeiro a prateleira",""));
+  select.disabled=!shelf;
+  if(!shelf)return;
+  const taken=new Set(records.filter(r=>r["Prateleira"]===shelf&&String(r.ID)!==String(editID??"")).map(r=>num(r["Posição"])));
+  const max=Math.max(0,...records.filter(r=>r["Prateleira"]===shelf).map(r=>num(r["Posição"])));
+  // Apresenta apenas as posições livres de 1 até à última ocupada + 1.
+  for(let pos=1;pos<=max+1;pos++)if(!taken.has(pos))select.add(new Option("Posição "+pos,String(pos)));
+  if(current&&[...select.options].some(opt=>opt.value===current))select.value=current;
+}
+function clearForm(){editID=null;$("docForm").reset();updatePositionChoices();$("formTitle").textContent="Registar documento";$("saveBtn").textContent="Guardar registo"}
+function editRow(id){const r=records.find(x=>String(x.ID)===String(id));if(!r)return;editID=r.ID;const f=$("docForm").elements;f.nome.value=trim(r["Nome do Ficheiro"]);f.departamento.value=trim(r.Departamento);f.prateleira.value=trim(r["Prateleira"]);updatePositionChoices(String(r["Posição"]));f.anoInicio.value=r["Ano Início"];f.anoFim.value=r["Ano Fim"]||"";f.observacoes.value=r.Observações||"";$("formTitle").textContent="Editar / Reposicionar documento";$("saveBtn").textContent="Guardar alterações";show("novo")}
 async function api(body){if(isDemo)throw Error("API não configurada");const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),CFG.timeoutMs||20000);try{const res=await fetch(CFG.apiUrl,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal:controller.signal});let parsed={};try{parsed=await res.json()}catch{}if(!res.ok||parsed.ok===false){const msg=parsed.code==="POSITION_OCCUPIED"?"Esta posição já está ocupada. Escolha outra.":parsed.message||"Erro na operação ("+res.status+").";throw Error(msg)}return parsed}finally{clearTimeout(timeout)}}
 async function load(){if(busy)return;busy=true;$("refreshBtn").disabled=true;try{if(isDemo){if(!records.length&&!load.hasDemo)records=sample.map(x=>({...x}));load.hasDemo=true}else{const response=await api({action:"list"});if(!Array.isArray(response.records))throw Error("A resposta da API não contém a lista de documentos.");records=response.records;
 if(!Array.isArray(response.departments)||!Array.isArray(response.shelves))throw Error("A API deve devolver departments e shelves a partir das tabelas da folha Listas.");
@@ -66,7 +78,7 @@ document.querySelectorAll("[data-view]").forEach(btn=>btn.addEventListener("clic
 document.querySelectorAll("[data-go]").forEach(btn=>btn.addEventListener("click",()=>show(btn.dataset.go)));
 $("newBtn").addEventListener("click",()=>{clearForm();show("novo")});
 $("refreshBtn").addEventListener("click",load);
-$("docForm").addEventListener("submit",save);
+$("docForm").addEventListener("submit",save);\n$("docForm").elements.prateleira.addEventListener("change",()=>updatePositionChoices());
 $("cancelEdit").addEventListener("click",()=>{clearForm();show("consulta")});
 $("resetForm").addEventListener("click",clearForm);
 $("clearShelf").addEventListener("click",()=>{selectedShelf=null;$("shelfDetail").hidden=true;renderMap()});
