@@ -7,7 +7,7 @@ const sample=[
 {"ID":3,"Departamento":"Recursos Humanos","Prateleira":"C6","Posição":3,"Nome do Ficheiro":"Processos individuais","Ano Início":2015,"Ano Fim":2019,"Período":"2015–2019","Observações":"","Data de Cadastro":""}
 ];
 let records=[],editID=null,selectedShelf=null,pendingDelete=null,busy=false;
-let departments=["Tesouraria","Contabilidade","Recursos Humanos"],configuredShelves=[...shelves];
+let departments=["Tesouraria","Contabilidade","Recursos Humanos"],configuredShelves=[...shelves],responsaveis=[];
 const $=id=>document.getElementById(id);
 let endpoint=sessionStorage.getItem("arquivo_consulta_url")||"";
 let updateEndpoint=sessionStorage.getItem("arquivo_update_url")||"";
@@ -37,6 +37,10 @@ const depSelect=$("docForm").elements.departamento,prevDept=depSelect.value;
 depSelect.replaceChildren(new Option("Seleccionar departamento",""));
 departments.forEach(d=>depSelect.add(new Option(d,d)));
 if(departments.includes(prevDept))depSelect.value=prevDept;
+const respSelect=$("docForm").elements.responsavel,prevResp=respSelect.value;
+respSelect.replaceChildren(new Option("Seleccionar responsável",""));
+responsaveis.forEach(v=>respSelect.add(new Option(v,v)));
+if(responsaveis.includes(prevResp))respSelect.value=prevResp;
 const shelfSelect=$("docForm").elements.prateleira,prevShelf=shelfSelect.value;
 shelfSelect.replaceChildren(new Option("Seleccionar",""));
 configuredShelves.forEach(s=>shelfSelect.add(new Option(s,s)));
@@ -85,6 +89,8 @@ async function load(){if(busy)return;busy=true;$("refreshBtn").disabled=true;try
 if(!Array.isArray(response.departments)||!Array.isArray(response.shelves))throw Error("A API deve devolver departments e shelves a partir das tabelas da folha Listas.");
 departments=unique(response.departments.map(v=>typeof v==="string"?v:v.Departamento));
 configuredShelves=unique(response.shelves.map(v=>typeof v==="string"?v:v.Prateleira).map(x=>x.toUpperCase())).filter(s=>/^[A-Z][1-6]$/.test(s));
+if(!Array.isArray(response.responsaveis))throw Error("A resposta do Power Automate não contém o array responsaveis.");
+responsaveis=unique(response.responsaveis.map(v=>typeof v==="string"?v:(v?.["Responsável"]??v?.Responsavel??"")));
 }render()}catch(e){alertMsg("Não foi possível carregar o arquivo: "+e.message,true)}finally{busy=false;$("refreshBtn").disabled=false}}
 async function save(ev){ev.preventDefault();if(!isDemo()&&(editID==null||!updateEndpoint)){alertMsg(editID==null?"O registo de novos documentos ainda não está ligado ao SharePoint.":"Configure primeiro a URL HTTP de pedidos de actualização em Ligar SharePoint.",true);return}if(busy)return;const f=$("docForm").elements;const yr=num(f.anoInicio.value),end=f.anoFim.value?num(f.anoFim.value):"";if(end&&end<yr){alertMsg("O ano final não pode ser anterior ao ano inicial.",true);return}const row={"Nome do Ficheiro":trim(f.nome.value),"Departamento":trim(f.departamento.value),"Prateleira":trim(f.prateleira.value),"Posição":num(f.posicao.value),"Ano Início":yr,"Ano Fim":end,"Observações":trim(f.observacoes.value),"Responsável":trim(f.responsavel.value)};if(!configuredShelves.includes(row["Prateleira"])||!departments.includes(row.Departamento)||!Number.isSafeInteger(row["Posição"])||row["Posição"]<1){alertMsg("Indique uma prateleira válida e uma posição inteira maior ou igual a 1.",true);return}const taken=locationsOccupied(row,editID);if(taken){alertMsg("Posição ocupada: "+taken["Nome do Ficheiro"]+" já está na prateleira "+row["Prateleira"]+", posição "+row["Posição"]+".",true);return}busy=true;$("saveBtn").disabled=true;try{if(isDemo()){if(editID==null){const next=Math.max(0,...records.map(r=>num(r.ID)))+1;records.push({...row,ID:next,"Período":computedPeriod(row)})}else{const idx=records.findIndex(r=>String(r.ID)===String(editID));if(idx<0)throw Error("Registo não encontrado.");records[idx]={...records[idx],...row,"Período":computedPeriod(row)}}}else{
  const controller=new AbortController(),t=setTimeout(()=>controller.abort(),CFG.timeoutMs||20000);
