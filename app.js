@@ -39,7 +39,8 @@ if(departments.includes(prevDept))depSelect.value=prevDept;
 const shelfSelect=$("docForm").elements.prateleira,prevShelf=shelfSelect.value;
 shelfSelect.replaceChildren(new Option("Seleccionar",""));
 configuredShelves.forEach(s=>shelfSelect.add(new Option(s,s)));
-if(configuredShelves.includes(prevShelf))shelfSelect.value=prevShelf;\nupdatePositionChoices();
+if(configuredShelves.includes(prevShelf))shelfSelect.value=prevShelf;
+updatePositionChoices();
 $("shelfSummary").replaceChildren(...[...new Set(all.map(x=>x["Prateleira"]))].slice(0,10).map(s=>{const n=el("button",undefined,"shelf-item");n.style.width="100%";n.style.textAlign="left";n.append(el("span",s,"pill"),el("span",all.filter(r=>r["Prateleira"]===s).length+" documento(s)","grow"));n.addEventListener("click",()=>openShelf(s));return n}));
 if(!all.length)$("shelfSummary").replaceChildren(el("p","Sem documentos registados.","empty"));
 const rec=$("recentDocs");rec.replaceChildren(...[...all].sort((a,b)=>num(b.ID)-num(a.ID)).slice(0,7).map(r=>{const n=el("div",undefined,"recent-item");const box=el("div",undefined,"grow");box.append(el("strong",r["Nome do Ficheiro"]),el("small",r.Departamento+" · "+r["Prateleira"]+" / "+r["Posição"]));n.append(el("span","▤","pill"),box);return n}));if(!all.length)rec.append(el("p","Nenhum documento registado.","empty"));
@@ -80,7 +81,8 @@ document.querySelectorAll("[data-view]").forEach(btn=>btn.addEventListener("clic
 document.querySelectorAll("[data-go]").forEach(btn=>btn.addEventListener("click",()=>show(btn.dataset.go)));
 $("newBtn").addEventListener("click",()=>{clearForm();show("novo")});
 $("refreshBtn").addEventListener("click",load);
-$("docForm").addEventListener("submit",save);\n$("docForm").elements.prateleira.addEventListener("change",()=>updatePositionChoices());
+$("docForm").addEventListener("submit",save);
+$("docForm").elements.prateleira.addEventListener("change",()=>updatePositionChoices());
 $("cancelEdit").addEventListener("click",()=>{clearForm();show("consulta")});
 $("resetForm").addEventListener("click",clearForm);
 $("clearShelf").addEventListener("click",()=>{selectedShelf=null;$("shelfDetail").hidden=true;renderMap()});
@@ -90,4 +92,8 @@ $("abortDelete").addEventListener("click",()=>{$("confirmDialog").close();pendin
 $("confirmDelete").addEventListener("click",deleteRow);
 for(const group of "ABCDEFGHIJKLMNOPQRSTUVWXYZ")$("shelfGroup").add(new Option(group,group));
 // Departamentos e prateleiras são carregados da API (folha Listas).
+$("connectBtn").addEventListener("click",()=>{$("apiUrlInput").value=endpoint;$("connectionDialog").showModal()});
+$("closeConnection").addEventListener("click",()=>$("connectionDialog").close());
+$("disconnectBtn").addEventListener("click",()=>{endpoint="";sessionStorage.removeItem("arquivo_consulta_url");records=[];load.hasDemo=false;$("connectionDialog").close();load()});
+$("saveConnection").addEventListener("click",async()=>{const url=trim($("apiUrlInput").value);if(!/^https:\/\//i.test(url)){alertMsg("Introduza uma URL HTTPS válida.",true);return}endpoint=url;sessionStorage.setItem("arquivo_consulta_url",url);$("connectionDialog").close();await load()});
 load();
