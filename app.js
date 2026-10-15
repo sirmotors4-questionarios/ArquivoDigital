@@ -15,9 +15,19 @@ const isDemo=()=>!endpoint;
 const collator=new Intl.Collator('pt',{numeric:true,sensitivity:'base'});
 const trim=v=>String(v??'').trim();
 function num(v){return Number(v)||0}
-function positionKey(r){return trim(r["Prateleira"]).toUpperCase()+"#"+num(r["Posição"])}
+function positionKey(r){return trim(r["Prateleira"]).toUpperCase()+"#"+String(r["Posição"]??("SEM_POSICAO_"+r.ID))}
 function sorted(rows){return [...rows].sort((a,b)=>collator.compare(trim(a["Prateleira"]),trim(b["Prateleira"]))||num(a["Posição"])-num(b["Posição"])||collator.compare(trim(a["Nome do Ficheiro"]),trim(b["Nome do Ficheiro"])))}
-function normalized(r){return {...r,"Prateleira":trim(r["Prateleira"]).toUpperCase(),"Posição":num(r["Posição"])}}
+function fieldByHeader(row,header){
+  const normalizedKey=v=>String(v).normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-zA-Z0-9]/g,"").toLowerCase();
+  const key=Object.keys(row).find(k=>normalizedKey(k)===normalizedKey(header));
+  return key===undefined?undefined:row[key];
+}
+function normalized(r){
+  const rawPosition=fieldByHeader(r,"Posição");
+  const parsed=rawPosition===undefined||rawPosition===null||trim(rawPosition)===""?NaN:Number(trim(rawPosition).replace(",","."));
+  return {...r,"Prateleira":trim(fieldByHeader(r,"Prateleira")).toUpperCase(),
+    "Posição":Number.isSafeInteger(parsed)&&parsed>=1?parsed:null};
+}
 function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=String(text);if(cls)node.className=cls;return node}
 function alertMsg(text,error=false){const n=$("message");n.textContent=text;n.className=error?"error":"success";n.hidden=false;window.scrollTo({top:0,behavior:'smooth'});clearTimeout(alertMsg.timer);alertMsg.timer=setTimeout(()=>n.hidden=true,7000)}
 function show(view){document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!==view);document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===view));const t={dashboard:['Painel geral','Localize e acompanhe os documentos arquivados.'],mapa:['Mapa do arquivo','Explore prateleiras e posições físicas.'],consulta:['Consultar documentos','Pesquise, edite ou reposicione registos.'],novo:[editID==null?'Novo registo':'Editar documento','Registe ou actualize a localização de um documento.']};$("pageTitle").textContent=t[view][0];$("pageSubtitle").textContent=t[view][1];window.scrollTo({top:0,behavior:'smooth'})}
@@ -27,6 +37,8 @@ function renderSelect(id,values,all){const input=$(id),old=input.value;input.rep
 function render(){
 records=records.map(normalized);
 const all=sorted(records);
+const withoutPosition=records.filter(r=>r["Posição"]===null);
+if(withoutPosition.length)alertMsg("Atenção: "+withoutPosition.length+" registo(s) chegaram sem uma Posição válida do Excel. Confirme a coluna Posição na resposta do Power Automate.",true);
 $("totalDocs").textContent=all.length;
 $("usedShelves").textContent=new Set(all.map(x=>x["Prateleira"])).size;
 $("totalDepts").textContent=unique(all.map(x=>x.Departamento)).length;
@@ -76,8 +88,8 @@ function updatePositionChoices(preferred="") {
   select.replaceChildren(new Option(shelf?"Seleccionar posição livre":"Seleccione primeiro a prateleira",""));
   select.disabled=!shelf;
   if(!shelf)return;
-  const taken=new Set(records.filter(r=>r["Prateleira"]===shelf&&String(r.ID)!==String(editID??"")).map(r=>num(r["Posição"])));
-  const max=Math.max(0,...records.filter(r=>r["Prateleira"]===shelf).map(r=>num(r["Posição"])));
+  const taken=new Set(records.filter(r=>r["Prateleira"]===shelf&&String(r.ID)!==String(editID??"")&&r["Posição"]!==null).map(r=>r["Posição"]));
+  const max=Math.max(0,...records.filter(r=>r["Prateleira"]===shelf&&r["Posição"]!==null).map(r=>r["Posição"]));
   // Apresenta apenas as posições livres de 1 até à última ocupada + 1.
   for(let pos=1;pos<=max+1;pos++)if(!taken.has(pos))select.add(new Option("Posição "+pos,String(pos)));
   if(current&&[...select.options].some(opt=>opt.value===current))select.value=current;
