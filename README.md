@@ -42,3 +42,4 @@ Os registos retornados devem conter **ID único** e localização exclusiva. Os 
 6. Publicar em GitHub Pages.
 
 O botão de eliminação apaga o registo no modo demonstração. Em produção, considere uma política de arquivo/inactivação e trilho de auditoria antes de permitir apagar definitivamente.
+\n## Posições disponíveis\n\nAo escolher a prateleira, o formulário mostra **apenas as posições livres**, de 1 até ao maior número de posição já ocupado nessa prateleira **mais 1**. Ex.: ocupadas 1, 2 e 4 → opções 3 e 5. Numa prateleira vazia mostra 1. Ao editar, a posição actual do próprio documento continua disponível. A validação final de exclusividade deve ocorrer no backend, incluindo chamadas simultâneas.\n
