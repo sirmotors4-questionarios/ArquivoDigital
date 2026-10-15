@@ -36,7 +36,7 @@ Os registos retornados devem conter **ID único** e localização exclusiva. Os 
 
 1. Confirmar o nome e extensão exactos do livro e a localização no SharePoint; verificar que a tabela `tblArquivoDigital` é legível pelo conector Excel Online (Business).
 2. Criar o backend com as operações acima, autorização adequada e garantia de exclusividade da chave `Prateleira+Posição` em concorrência.
-3. Consultar no mesmo livro as tabelas `tblDepartamentos` e `tblPrateleira` da folha `Listas`, e devolver os valores em `departments` e `shelves`. O portal obriga a seleccionar valores dessas tabelas. **Os nomes exactos das colunas internas dessas duas tabelas ainda precisam de ser confirmados** para criar os fluxos de mapeamento.
+3. Consultar no mesmo livro as tabelas `tblDepartamentos` e `tblPrateleira` da folha `Listas`, e devolver os valores em `departments` e `shelves`. O portal obriga a seleccionar valores dessas tabelas. **Colunas confirmadas:** `tblDepartamentos[Departamento]` e `tblPrateleira[Prateleira]` para criar os fluxos de mapeamento.
 4. Testar individualmente consulta, nova posição, conflito simultâneo, reposicionamento, eliminação e fórmula de `Período`.
 5. Configurar `config.js` (`apiUrl` e `demo:false`) apenas quando a API estiver operacional e o controlo de acesso implementado.
 6. Publicar em GitHub Pages.
