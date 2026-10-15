@@ -4,3 +4,4 @@
 .shelf.occupied span{color:#27754b}
 .shelf.occupied:hover,.shelf.occupied.selected{background:#cfebd9;border-color:#359765}
 .shelf.selected:not(.occupied){background:#eaf4ff;border-color:#1674d7}
+\n#shelfDetail,.shelf{scroll-margin-top:22px}.detail-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.detail-actions .outline{font-size:13px;padding:9px 12px}\n
