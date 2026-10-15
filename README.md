@@ -1,6 +1,6 @@
 # Arquivo Digital — SIR Motors
 
-Portal estático de consulta e gestão do **arquivo físico**. Prateleiras A1–Z6, posições inteiras ≥1, ordenação por prateleira alfanumérica e posição. Backend pretendido: **Power Automate + Excel Online no SharePoint**, pasta `arquivo`, livro `Arquivo`, tabela **`tblArquivoDigital`**.
+Portal estático de consulta e gestão do **arquivo físico**. Prateleiras A1–Z6, posições inteiras ≥1, ordenação por prateleira alfanumérica e posição. Backend pretendido: **Power Automate + Excel Online no SharePoint**, pasta `arquivo`, livro `Arquivo`, tabela **`tblArquivoDigital`**. Tabelas auxiliares na folha **`Listas`**: **`tblDepartamentos`** e **`tblPrateleira`**.
 
 ## Execução
 
@@ -18,7 +18,7 @@ A aplicação inicia em **modo demonstração** (apenas dados exemplificativos, 
 
 A aplicação chama `POST apiUrl` com body:
 
-- Leitura: `{ "action": "list" }` → `{ "ok": true, "records": [ { "ID": 1, "Departamento": "...", "Prateleira": "A1", "Posição": 1, "Nome do Ficheiro": "...", "Ano Início": 2020, "Ano Fim": 2022, "Período": "2020–2022", "Observações": "...", "Data de Cadastro": "...", "Data de Actualização": "..." } ] }`.
+- Leitura: `{ "action": "list" }` → `{ "ok": true, "departments": ["Tesouraria", "Contabilidade", "Recursos Humanos"], "shelves": ["A1", "A2", "B3", "C6"], "records": [ { "ID": 1, "Departamento": "...", "Prateleira": "A1", "Posição": 1, "Nome do Ficheiro": "...", "Ano Início": 2020, "Ano Fim": 2022, "Período": "2020–2022", "Observações": "...", "Data de Cadastro": "...", "Data de Actualização": "..." } ] }`.
 - Inserção: `{ "action": "create", "record": { "Departamento": "...", "Prateleira": "A1", "Posição": 2, "Nome do Ficheiro": "...", "Ano Início": 2020, "Ano Fim": 2022, "Observações": "..." } }`.
 - Edição/reposicionamento: `{ "action": "update", "id": 1, "record": { ... } }`.
 - Eliminação: `{ "action": "delete", "id": 1 }`.
@@ -36,7 +36,7 @@ Os registos retornados devem conter **ID único** e localização exclusiva. Os 
 
 1. Confirmar o nome e extensão exactos do livro e a localização no SharePoint; verificar que a tabela `tblArquivoDigital` é legível pelo conector Excel Online (Business).
 2. Criar o backend com as operações acima, autorização adequada e garantia de exclusividade da chave `Prateleira+Posição` em concorrência.
-3. Criar uma listagem de departamentos existentes no Excel; o formulário sugere os departamentos encontrados.
+3. Consultar no mesmo livro as tabelas `tblDepartamentos` e `tblPrateleira` da folha `Listas`, e devolver os valores em `departments` e `shelves`. O portal obriga a seleccionar valores dessas tabelas. **Os nomes exactos das colunas internas dessas duas tabelas ainda precisam de ser confirmados** para criar os fluxos de mapeamento.
 4. Testar individualmente consulta, nova posição, conflito simultâneo, reposicionamento, eliminação e fórmula de `Período`.
 5. Configurar `config.js` (`apiUrl` e `demo:false`) apenas quando a API estiver operacional e o controlo de acesso implementado.
 6. Publicar em GitHub Pages.
