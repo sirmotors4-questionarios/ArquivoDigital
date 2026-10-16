@@ -63,7 +63,7 @@ if(!all.length)$("shelfSummary").replaceChildren(el("p","Sem documentos registad
 const rec=$("recentDocs");rec.replaceChildren(...[...all].sort((a,b)=>num(b.ID)-num(a.ID)).slice(0,7).map(r=>{const n=el("div",undefined,"recent-item");const box=el("div",undefined,"grow");box.append(el("strong",r["Nome do Ficheiro"]),el("small",r.Departamento+" · "+r["Prateleira"]+" / "+r["Posição"]));n.append(el("span","▤","pill"),box);return n}));if(!all.length)rec.append(el("p","Nenhum documento registado.","empty"));
 renderMap();renderTable();
 if(selectedShelf)showShelf(selectedShelf);
-$("syncState").textContent=isDemo()?"● Modo demonstração":"● Ligação de consulta configurada";
+$("syncState").textContent=isDemo()?"● Modo demonstração":("● Consulta configurada · Actualização "+(updateEndpoint?"configurada":"não configurada"));
 }
 function renderMap(){const group=$("shelfGroup").value;const map=$("shelfMap");map.replaceChildren();for(const s of configuredShelves.filter(s=>!group||s[0]===group)){const count=records.filter(r=>r["Prateleira"]===s).length;const btn=el("button",undefined,"shelf"+(count>0?" occupied":"")+(selectedShelf===s?" selected":""));btn.append(el("b",s),el("span",count+" posição(ões) ocupada(s)"));btn.addEventListener("click",()=>openShelf(s));map.append(btn)}}
 function scrollToArchiveElement(node){
@@ -108,11 +108,21 @@ async function save(ev){ev.preventDefault();if(!isDemo()&&(editID==null||!update
  const controller=new AbortController(),t=setTimeout(()=>controller.abort(),CFG.timeoutMs||20000);
  let response;
  try{response=await fetch(updateEndpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:editID,record:row}),signal:controller.signal})}finally{clearTimeout(t)}
- const result=await response.json();
- if(!response.ok||result.ok===false)throw Error(result.message||"O pedido não foi aceite.");
+ const raw=await response.text();
+ let result={};
+ try{result=raw?JSON.parse(raw):{}}catch{throw Error("HTTP "+response.status+": resposta não é JSON válido. Confirma a acção Response no Power Automate.")}
+ if(!response.ok||result.ok===false){
+   const detail=typeof result.message==="string"?result.message:
+     (typeof result.error?.message==="string"?result.error.message:"");
+   const reason=({400:"Pedido inválido ou esquema JSON incompatível.",401:"Autenticação recusada. Confirme a opção Who can trigger the flow.",403:"Sem autorização para executar o fluxo.",404:"URL de actualização incorrecta ou desactualizada.",429:"Limite de pedidos excedido.",500:"Erro interno do Power Automate.",502:"Erro de comunicação com o serviço.",503:"Serviço temporariamente indisponível."})[response.status]||"O pedido não foi aceite pelo serviço.";
+   throw Error("HTTP "+response.status+" — "+(detail||reason));
+ }
  if(!result.id_pedido&&!result.ID_Pedido)throw Error("O fluxo ainda não confirmou o ID_Pedido; não é possível confirmar o envio.");
  clearForm();show("consulta");alertMsg("Pedido de alteração recebido ("+(result.id_pedido||result.ID_Pedido)+"). Aguarda processamento no SharePoint. Use Actualizar para consultar os dados após a conclusão.");return
-}clearForm();render();show("consulta");alertMsg("Operação simulada. Os dados não foram enviados ao SharePoint.")}catch(e){alertMsg("Não foi possível guardar: "+e.message,true)}finally{busy=false;$("saveBtn").disabled=false}}
+}clearForm();render();show("consulta");alertMsg("Operação simulada. Os dados não foram enviados ao SharePoint.")}catch(e){
+ const message=e.name==="AbortError"?"Tempo limite ao contactar o Power Automate. Verifica o estado do pedido no SharePoint antes de tentares novamente.":e instanceof TypeError?"Falha de comunicação com o Power Automate (URL, CORS ou rede). Verifica a ligação e não repitas o pedido antes de consultar a fila no SharePoint.":e.message;
+ alertMsg("Não foi possível guardar: "+message,true)
+}finally{busy=false;$("saveBtn").disabled=false}}
 function askDelete(id){pendingDelete=id;const r=records.find(x=>String(x.ID)===String(id));$("confirmText").textContent='Pretende eliminar "'+(r?.["Nome do Ficheiro"]||"este documento")+'"? A posição ficará livre.';$("confirmDialog").showModal()}
 async function deleteRow(){if(pendingDelete==null||busy)return;if(!isDemo()){pendingDelete=null;$("confirmDialog").close();alertMsg("Eliminação indisponível até configurar o fluxo protegido de escrita.",true);return}const id=pendingDelete;busy=true;$("confirmDelete").disabled=true;try{if(isDemo()){records=records.filter(r=>String(r.ID)!==String(id))}else{await api({action:"delete",id});const res=await api({action:"list"});records=res.records||[]}pendingDelete=null;$("confirmDialog").close();render();alertMsg(isDemo()?"Eliminação simulada.":"Registo eliminado.")}catch(e){alertMsg("Não foi possível eliminar: "+e.message,true);$("confirmDialog").close()}finally{busy=false;$("confirmDelete").disabled=false}}
 document.querySelectorAll("[data-view]").forEach(btn=>btn.addEventListener("click",()=>{if(btn.dataset.view==="novo")clearForm();show(btn.dataset.view)}));
@@ -134,5 +144,5 @@ for(const group of "ABCDEFGHIJKLMNOPQRSTUVWXYZ")$("shelfGroup").add(new Option(g
 $("connectBtn").addEventListener("click",()=>{$("apiUrlInput").value=endpoint;$("updateUrlInput").value=updateEndpoint;$("connectionDialog").showModal()});
 $("closeConnection").addEventListener("click",()=>$("connectionDialog").close());
 $("disconnectBtn").addEventListener("click",()=>{endpoint="";sessionStorage.removeItem("arquivo_consulta_url");updateEndpoint="";sessionStorage.removeItem("arquivo_update_url");records=[];load.hasDemo=false;$("connectionDialog").close();load()});
-$("saveConnection").addEventListener("click",async()=>{const url=trim($("apiUrlInput").value);if(!/^https:\/\//i.test(url)){alertMsg("Introduza uma URL HTTPS válida.",true);return}endpoint=url;sessionStorage.setItem("arquivo_consulta_url",url);updateEndpoint=trim($("updateUrlInput").value);if(updateEndpoint&&!/^https:\/\//i.test(updateEndpoint)){alertMsg("A URL de actualização deve utilizar HTTPS.",true);return}if(updateEndpoint)sessionStorage.setItem("arquivo_update_url",updateEndpoint);else sessionStorage.removeItem("arquivo_update_url");$("connectionDialog").close();await load()});
+$("saveConnection").addEventListener("click",async()=>{const url=trim($("apiUrlInput").value);if(!/^https:\/\//i.test(url)){alertMsg("Introduza uma URL HTTPS válida.",true);return}const candidateUpdate=trim($("updateUrlInput").value);if(candidateUpdate&&!/^https:\/\//i.test(candidateUpdate)){alertMsg("A URL de actualização deve utilizar HTTPS.",true);return}endpoint=url;sessionStorage.setItem("arquivo_consulta_url",url);updateEndpoint=candidateUpdate;if(updateEndpoint)sessionStorage.setItem("arquivo_update_url",updateEndpoint);else sessionStorage.removeItem("arquivo_update_url");$("connectionDialog").close();await load()});
 load();
