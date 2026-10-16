@@ -30,6 +30,15 @@ function normalized(r){
     "Posição":Number.isSafeInteger(parsed)&&parsed>=1?parsed:null};
 }
 function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=String(text);if(cls)node.className=cls;return node}
+function operationStatus(state,title,description,id=""){
+ const node=$("operationStatus");
+ node.hidden=false;
+ node.dataset.state=state;
+ $("operationIcon").textContent=({sending:"⏳",pending:"🟡",uncertain:"⚠️",error:"🔴",demo:"✅"})[state]||"ℹ️";
+ $("operationTitle").textContent=title;
+ $("operationDescription").textContent=description;
+ $("operationReference").textContent=id?"Pedido: "+id:"";
+}
 function alertMsg(text,error=false){const n=$("message");n.textContent=text;n.className=error?"error":"success";n.hidden=false;window.scrollTo({top:0,behavior:'smooth'});clearTimeout(alertMsg.timer);alertMsg.timer=setTimeout(()=>n.hidden=true,7000)}
 function show(view){document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!==view);document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===view));const t={dashboard:['Painel geral','Localize e acompanhe os documentos arquivados.'],mapa:['Mapa do arquivo','Explore prateleiras e posições físicas.'],consulta:['Consultar documentos','Pesquise, edite ou reposicione registos.'],novo:[editID==null?'Novo registo':'Editar documento','Registe ou actualize a localização de um documento.']};$("pageTitle").textContent=t[view][0];$("pageSubtitle").textContent=t[view][1];window.scrollTo({top:0,behavior:'smooth'})}
 function locationsOccupied(row,ignoreID){return records.find(r=>positionKey(r)===positionKey(row)&&String(r.ID)!==String(ignoreID??''))}
@@ -108,6 +117,7 @@ responsaveis=unique(response.responsaveis.map(v=>typeof v==="string"?v:(v?.["Res
 async function save(ev){ev.preventDefault();if(!isDemo()&&(editID==null||!updateEndpoint)){alertMsg(editID==null?"O registo de novos documentos ainda não está ligado ao SharePoint.":"Configure primeiro a URL HTTP de pedidos de actualização em Ligar SharePoint.",true);return}if(busy)return;const f=$("docForm").elements;const yr=num(f.anoInicio.value),end=f.anoFim.value?num(f.anoFim.value):"";if(end&&end<yr){alertMsg("O ano final não pode ser anterior ao ano inicial.",true);return}const row={"Nome do Ficheiro":trim(f.nome.value),"Departamento":trim(f.departamento.value),"Prateleira":trim(f.prateleira.value),"Posição":num(f.posicao.value),"Ano Início":yr,"Ano Fim":end,"Observações":trim(f.observacoes.value),"Responsável":trim(f.responsavel.value)};if(!configuredShelves.includes(row["Prateleira"])||!departments.includes(row.Departamento)||!Number.isSafeInteger(row["Posição"])||row["Posição"]<1){alertMsg("Indique uma prateleira válida e uma posição inteira maior ou igual a 1.",true);return}const taken=locationsOccupied(row,editID);if(taken){alertMsg("Posição ocupada: "+taken["Nome do Ficheiro"]+" já está na prateleira "+row["Prateleira"]+", posição "+row["Posição"]+".",true);return}if(!isDemo()&&pendingUpdate){alertMsg("Há um pedido anterior cujo resultado ainda não foi confirmado (ID: "+pendingUpdate+"). Verifique a lista SharePoint antes de enviar outro.",true);return}busy=true;$("saveBtn").disabled=true;try{if(isDemo()){if(editID==null){const next=Math.max(0,...records.map(r=>num(r.ID)))+1;records.push({...row,ID:next,"Período":computedPeriod(row)})}else{const idx=records.findIndex(r=>String(r.ID)===String(editID));if(idx<0)throw Error("Registo não encontrado.");records[idx]={...records[idx],...row,"Período":computedPeriod(row)}}}else{
  const idPedido=crypto.randomUUID();
  pendingUpdate=idPedido;
+ operationStatus("sending","A enviar actualização…","O pedido está a ser enviado ao Power Automate. Não feche a página nem volte a submeter.",idPedido);
  const controller=new AbortController(),t=setTimeout(()=>controller.abort(),CFG.timeoutMs||20000);
  let response;
  try{response=await fetch(updateEndpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:editID,id_pedido:idPedido,record:row}),signal:controller.signal})}finally{clearTimeout(t)}
@@ -123,9 +133,11 @@ async function save(ev){ev.preventDefault();if(!isDemo()&&(editID==null||!update
  }
  if(!result.id_pedido&&!result.ID_Pedido)throw Error("Pedido enviado com ID "+idPedido+", mas não foi devolvida confirmação; verifique a fila SharePoint.");
  pendingUpdate=null;
+ operationStatus("pending","Pedido recebido — a aguardar processamento","O SharePoint recebeu o pedido. O Excel poderá ainda não estar actualizado. Aguarde a conclusão no processador.",idPedido);
  clearForm();show("consulta");alertMsg("Pedido de alteração recebido ("+(result.id_pedido||result.ID_Pedido)+"). Aguarda processamento no SharePoint. Use Actualizar para consultar os dados após a conclusão.");return
 }clearForm();render();show("consulta");alertMsg("Operação simulada. Os dados não foram enviados ao SharePoint.")}catch(e){
  const message=e.name==="AbortError"?"Tempo limite ao contactar o Power Automate. Verifica o estado do pedido no SharePoint antes de tentares novamente.":e instanceof TypeError?"Falha de comunicação com o Power Automate (URL, CORS ou rede). Verifica a ligação e não repitas o pedido antes de consultar a fila no SharePoint.":e.message;
+ operationStatus(pendingUpdate?"uncertain":"error",pendingUpdate?"Estado ainda não confirmado":"Pedido não aceite",pendingUpdate?"A resposta não chegou ou foi inconclusiva. Consulte a lista SharePoint pelo ID antes de voltar a tentar.":"A operação não foi confirmada. Reveja a mensagem de erro abaixo.",pendingUpdate||"");
  alertMsg("Não foi possível confirmar o pedido"+(pendingUpdate?" (ID: "+pendingUpdate+")":"")+": "+message,true)
 }finally{busy=false;$("saveBtn").disabled=false}}
 function askDelete(id){pendingDelete=id;const r=records.find(x=>String(x.ID)===String(id));$("confirmText").textContent='Pretende eliminar "'+(r?.["Nome do Ficheiro"]||"este documento")+'"? A posição ficará livre.';$("confirmDialog").showModal()}
