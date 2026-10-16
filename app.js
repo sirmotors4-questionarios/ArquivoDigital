@@ -109,6 +109,7 @@ function rowOperationStatus(r){
  return cell;
 }
 function tickOperationClock(){
+ document.querySelectorAll("[data-create-clock]").forEach(n=>{const op=[...activeOperations.values()].find(x=>x.id===n.dataset.createClock);if(op)n.textContent="◷ "+elapsedTime(Date.now()-op.started)+" · A registar…"});
  document.querySelectorAll("[data-processing-clock]").forEach(n=>{
   const op=pendingFor(n.dataset.processingClock);
   if(op)n.textContent="◷ "+elapsedTime(Date.now()-op.started);
@@ -133,11 +134,11 @@ async function checkOperations(){
   let changed=false;
   for(const [key,op] of [...activeOperations]){
    if(Date.now()-op.started>10*60*1000&&op.phase!=="uncertain"){op.phase="uncertain";changed=true}
-   const found=fresh.find(r=>String(r.ID)===key);
+   const found=op.kind==="create"?fresh.find(r=>!op.previousIds.includes(String(r.ID))&&rowMatchesUpdate(r,op.target)):fresh.find(r=>String(r.ID)===key);
    const wasDifferent=!rowMatchesUpdate(op.previous,op.target);
    const baseline=trim(fieldByHeader(op.previous,"Data de Actualização"));
    const current=found?trim(fieldByHeader(found,"Data de Actualização")):"";
-   const freshEvidence=wasDifferent||(baseline!==current&&Boolean(current));
+   const freshEvidence=op.kind==="create"?!!found:(wasDifferent||(baseline!==current&&Boolean(current)));
    if(found&&rowMatchesUpdate(found,op.target)&&freshEvidence){
     activeOperations.delete(key);changed=true;
    }
@@ -150,8 +151,8 @@ async function checkOperations(){
  }catch(e){/* Sem confirmação, os pedidos continuam visíveis e não são repetidos. */}
  finally{operationPolling=false}
 }
-function beginOperation(id,docId,target,previous){
- activeOperations.set(String(docId),{id,docId,target,previous,started:Date.now(),phase:"processing"});
+function beginOperation(id,docId,target,previous,kind="update"){
+ activeOperations.set(String(docId),{id,docId,target,previous,kind,previousIds:kind==="create"?records.map(r=>String(r.ID)):[],started:Date.now(),phase:"processing"});
  persistOperation();startOperationClock();renderTable();
 }
 function alertMsg(text,error=false){const n=$("message");n.textContent=text;n.className=error?"error":"success";n.hidden=false;window.scrollTo({top:0,behavior:'smooth'});clearTimeout(alertMsg.timer);alertMsg.timer=setTimeout(()=>n.hidden=true,7000)}
@@ -206,7 +207,7 @@ function openShelf(s){
 function showShelf(s){$("shelfDetail").hidden=false;$("selectedShelf").textContent="Prateleira "+s;const root=$("shelfDocuments");root.replaceChildren();const found=sorted(records.filter(r=>r["Prateleira"]===s));if(!found.length){root.append(el("p","Nenhuma posição ocupada nesta prateleira.","empty"));return}const tbl=el("table"),head=el("thead"),body=el("tbody");const hr=el("tr");["Posição","Nome do ficheiro","Departamento","Período","Acções"].forEach(h=>hr.append(el("th",h)));head.append(hr);found.forEach(r=>{const tr=el("tr");[r["Posição"],r["Nome do Ficheiro"],r.Departamento,r["Período"]||computedPeriod(r)].forEach(t=>tr.append(el("td",t)));const td=el("td");td.append(actions(r));tr.append(td);body.append(tr)});tbl.append(head,body);root.append(tbl)}
 function actions(r){const span=el("div",undefined,"actions");const edit=el("button","Editar / Mover");edit.disabled=!!pendingFor(r.ID);if(edit.disabled)edit.title="Aguarde a conclusão da actualização deste documento.";edit.addEventListener("click",()=>editRow(r.ID));const remove=el("button","Eliminar","remove");remove.addEventListener("click",()=>askDelete(r.ID));span.append(edit,remove);return span}
 function computedPeriod(r){const a=trim(r["Ano Início"]),b=trim(r["Ano Fim"]);return a?(b&&b!==a?a+"–"+b:a):"—"}
-function renderTable(){const q=trim($("filterSearch").value).toLocaleLowerCase("pt"),dep=$("filterDept").value,shelf=$("filterShelf").value,year=num($("filterYear").value);const all=sorted(records).filter(r=>(!q||[r["Nome do Ficheiro"],r.Observações,r.Departamento,r["Prateleira"]].some(x=>trim(x).toLocaleLowerCase("pt").includes(q)))&&(!dep||r.Departamento===dep)&&(!shelf||r["Prateleira"]===shelf)&&(!year||(num(r["Ano Início"])<=year&&year<=num(r["Ano Fim"]||r["Ano Início"]))));$("filterCount").textContent=all.length+" resultado(s)";const root=$("docsBody");root.replaceChildren();for(const r of all){const tr=el("tr");const loc=el("td",r["Prateleira"]+" · Posição "+r["Posição"],"loc");const doc=el("td",r["Nome do Ficheiro"]);const depCell=el("td",r.Departamento);const period=el("td",r["Período"]||computedPeriod(r));const history=el("td");const isProcessing=!!pendingFor(r.ID);const historyBtn=el("button",isProcessing?"◷ Pendente":"Ver histórico","history-btn"+(isProcessing?" history-pending":""));historyBtn.type="button";if(isProcessing){historyBtn.dataset.pendingHistory=String(r.ID);historyBtn.title="Actualização em curso · "+elapsedTime(Date.now()-pendingFor(r.ID).started)}historyBtn.addEventListener("click",()=>viewHistory(r));history.append(historyBtn);const act=el("td");const activity=rowOperationStatus(r);if(activity)doc.append(activity);act.append(actions(r));tr.append(loc,doc,depCell,period,history,act);root.append(tr)}if(!all.length){const row=el("tr"),td=el("td","Nenhum documento encontrado.","empty");td.colSpan=6;row.append(td);root.append(row)}}
+function renderTable(){const q=trim($("filterSearch").value).toLocaleLowerCase("pt"),dep=$("filterDept").value,shelf=$("filterShelf").value,year=num($("filterYear").value);const all=sorted(records).filter(r=>(!q||[r["Nome do Ficheiro"],r.Observações,r.Departamento,r["Prateleira"]].some(x=>trim(x).toLocaleLowerCase("pt").includes(q)))&&(!dep||r.Departamento===dep)&&(!shelf||r["Prateleira"]===shelf)&&(!year||(num(r["Ano Início"])<=year&&year<=num(r["Ano Fim"]||r["Ano Início"]))));$("filterCount").textContent=all.length+" resultado(s)";const root=$("docsBody");root.replaceChildren();for(const r of all){const tr=el("tr");const loc=el("td",r["Prateleira"]+" · Posição "+r["Posição"],"loc");const doc=el("td",r["Nome do Ficheiro"]);const depCell=el("td",r.Departamento);const period=el("td",r["Período"]||computedPeriod(r));const history=el("td");const isProcessing=!!pendingFor(r.ID);const historyBtn=el("button",isProcessing?"◷ Pendente":"Ver histórico","history-btn"+(isProcessing?" history-pending":""));historyBtn.type="button";if(isProcessing){historyBtn.dataset.pendingHistory=String(r.ID);historyBtn.title="Actualização em curso · "+elapsedTime(Date.now()-pendingFor(r.ID).started)}historyBtn.addEventListener("click",()=>viewHistory(r));history.append(historyBtn);const act=el("td");const activity=rowOperationStatus(r);if(activity)doc.append(activity);act.append(actions(r));tr.append(loc,doc,depCell,period,history,act);root.append(tr)}for(const op of activeOperations.values())if(op.kind==="create"){const tr=el("tr");tr.className="pending-create-row";const doc=el("td",op.target["Nome do Ficheiro"]);const clock=el("div","◷ "+elapsedTime(Date.now()-op.started)+" · A registar…","row-processing");clock.dataset.createClock=op.id;doc.append(clock);const hist=el("td","◷ Pendente");hist.className="pending-create-cell";tr.append(el("td",op.target["Prateleira"]+" · Posição "+op.target["Posição"]),doc,el("td",op.target.Departamento),el("td",computedPeriod(op.target)),hist,el("td","Aguarda confirmação"));root.append(tr)}if(!all.length&&!activeOperations.size){const row=el("tr"),td=el("td","Nenhum documento encontrado.","empty");td.colSpan=6;row.append(td);root.append(row)}}
 function updatePositionChoices(preferred="") {
   const fields=$("docForm").elements, shelf=trim(fields.prateleira.value);
   const select=fields.posicao, current=String(preferred||select.value||"");
@@ -230,17 +231,18 @@ configuredShelves=unique(response.shelves.map(v=>typeof v==="string"?v:v.Pratele
 if(!Array.isArray(response.responsaveis))throw Error("A resposta do Power Automate não contém o array responsaveis.");
 responsaveis=unique(response.responsaveis.map(v=>typeof v==="string"?v:(v?.["Responsável"]??v?.Responsavel??"")));
 }render()}catch(e){alertMsg("Não foi possível carregar o arquivo: "+e.message,true)}finally{busy=false;$("refreshBtn").disabled=false}}
-async function save(ev){ev.preventDefault();if(!isDemo()&&(editID==null||!updateEndpoint)){alertMsg(editID==null?"O registo de novos documentos ainda não está ligado ao SharePoint.":"Configure primeiro a URL HTTP de pedidos de actualização em Ligar SharePoint.",true);return}if(busy)return;const f=$("docForm").elements;const yr=num(f.anoInicio.value),end=f.anoFim.value?num(f.anoFim.value):"";if(end&&end<yr){alertMsg("O ano final não pode ser anterior ao ano inicial.",true);return}const row={"Nome do Ficheiro":trim(f.nome.value),"Departamento":trim(f.departamento.value),"Prateleira":trim(f.prateleira.value),"Posição":num(f.posicao.value),"Ano Início":yr,"Ano Fim":end,"Observações":trim(f.observacoes.value),"Responsável":trim(f.responsavel.value)};if(!configuredShelves.includes(row["Prateleira"])||!departments.includes(row.Departamento)||!Number.isSafeInteger(row["Posição"])||row["Posição"]<1){alertMsg("Indique uma prateleira válida e uma posição inteira maior ou igual a 1.",true);return}const reserved=[...activeOperations.values()].find(op=>String(op.docId)!==String(editID)&&op.target["Prateleira"]===row["Prateleira"]&&op.target["Posição"]===row["Posição"]);
+async function save(ev){ev.preventDefault();if(!isDemo()&&!updateEndpoint){alertMsg("Configure primeiro a URL HTTP de pedidos em Ligar SharePoint.",true);return}if(busy)return;const f=$("docForm").elements;const yr=num(f.anoInicio.value),end=f.anoFim.value?num(f.anoFim.value):"";if(end&&end<yr){alertMsg("O ano final não pode ser anterior ao ano inicial.",true);return}const row={"Nome do Ficheiro":trim(f.nome.value),"Departamento":trim(f.departamento.value),"Prateleira":trim(f.prateleira.value),"Posição":num(f.posicao.value),"Ano Início":yr,"Ano Fim":end,"Observações":trim(f.observacoes.value),"Responsável":trim(f.responsavel.value)};if(!configuredShelves.includes(row["Prateleira"])||!departments.includes(row.Departamento)||!Number.isSafeInteger(row["Posição"])||row["Posição"]<1){alertMsg("Indique uma prateleira válida e uma posição inteira maior ou igual a 1.",true);return}const reserved=[...activeOperations.values()].find(op=>String(op.docId)!==String(editID)&&op.target["Prateleira"]===row["Prateleira"]&&op.target["Posição"]===row["Posição"]);
  if(reserved){alertMsg("Esta posição já está reservada por outro pedido pendente.",true);return}
  const taken=locationsOccupied(row,editID);if(taken){alertMsg("Posição ocupada: "+taken["Nome do Ficheiro"]+" já está na prateleira "+row["Prateleira"]+", posição "+row["Posição"]+".",true);return}if(!isDemo()&&pendingFor(editID)){alertMsg("Este documento já tem uma actualização pendente. Pode actualizar outros documentos enquanto aguarda.",true);return}busy=true;$("saveBtn").disabled=true;try{if(isDemo()){if(editID==null){const next=Math.max(0,...records.map(r=>num(r.ID)))+1;records.push({...row,ID:next,"Período":computedPeriod(row)})}else{const idx=records.findIndex(r=>String(r.ID)===String(editID));if(idx<0)throw Error("Registo não encontrado.");records[idx]={...records[idx],...row,"Período":computedPeriod(row)}}}else{
  const idPedido=crypto.randomUUID();
- const requestDocId=editID;
+ const kind=editID==null?"create":"update";
+ const requestDocId=kind==="create"?"create:"+idPedido:editID;
  const previous={...(records.find(r=>String(r.ID)===String(editID))||{})};
- beginOperation(idPedido,editID,row,previous);
+ beginOperation(idPedido,requestDocId,row,previous,kind);
  operationStatus("sending","A enviar actualização…","Pedido em processamento.",idPedido);
  const controller=new AbortController(),t=setTimeout(()=>controller.abort(),CFG.timeoutMs||20000);
  let response;
- try{response=await fetch(updateEndpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:editID,id_pedido:idPedido,record:row}),signal:controller.signal})}finally{clearTimeout(t)}
+ try{response=await fetch(updateEndpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(kind==="create"?{action:"create",id_pedido:idPedido,record:row}:{action:"update",id:editID,id_pedido:idPedido,record:row}),signal:controller.signal})}finally{clearTimeout(t)}
  const raw=await response.text();
  let result={};
  try{result=raw?JSON.parse(raw):{}}catch{throw Error("HTTP "+response.status+": resposta não é JSON válido. Confirma a acção Response no Power Automate.")}
