@@ -36,20 +36,43 @@ function normalized(r){
 }
 function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=String(text);if(cls)node.className=cls;return node}
 function operationStatus(state,title,description,id=""){
- const nav=document.querySelector('.nav[data-view="consulta"]');
- nav.classList.toggle("consult-pending",["sending","pending","uncertain"].includes(state));
- nav.classList.toggle("consult-done",state==="demo");
  latestOperationState=state;
- nav.title=description+(id?" · Pedido: "+id:"");
+ renderTable();
 }
 function viewHistory(r){
  $("historyDocName").textContent=r["Nome do Ficheiro"]+" · Documento "+r.ID;
  const raw=trim(fieldByHeader(r,"Actualização"));
  const root=$("historyContent");root.replaceChildren();
- if(!raw){root.append(el("p","Ainda não existe histórico de alterações registado para este documento.","empty"))}
+ if(!raw){root.append(el("p","Ainda não existem alterações registadas para este documento.","empty"))}
  else{
-   const entries=raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
-   entries.forEach(entry=>root.append(el("p",entry,"history-entry")));
+  // Os registos acumulados no Excel são exibidos sem alterar o texto original.
+  const lines=raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  const groups=[];let current=[];
+  for(const line of lines){
+   const header=/^(?:\[?\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}|actualiza[çc][ãa]o\s*(?:em|de|:)|alterad[oa]\s*(?:em|por|:)|respons[aá]vel\s*:)/i.test(line);
+   if(header&&current.length){groups.push(current);current=[]}
+   current.push(line);
+  }
+  if(current.length)groups.push(current);
+  groups.forEach((lines,index)=>{
+   const card=el("article",undefined,"history-card");
+   const heading=el("div",undefined,"history-card-head");
+   heading.append(el("span","◷","history-card-icon"),el("strong","Registo "+String(index+1).padStart(2,"0")));
+   card.append(heading);
+   lines.forEach(line=>{
+    const row=el("div",undefined,"history-line");
+    const arrow=line.includes("→")?"→":line.includes("=>")?"=>":null;
+    const textual=line.match(/^(.+?)\s+(?:de\s+)(.+?)\s+(?:para\s+)(.+)$/i);
+    if(arrow){
+     const [from,to]=line.split(arrow,2);
+     const before=el("span",from.trim(),"change-before"),icon=el("span","→","change-arrow"),after=el("span",to.trim(),"change-after");
+     row.append(before,icon,after);row.classList.add("history-change");
+    }else if(textual){
+     row.append(el("b",textual[1]+" · ","change-label"),el("span",textual[2],"change-before"),el("span","→","change-arrow"),el("span",textual[3],"change-after"));row.classList.add("history-change");
+    }else row.append(el("span",line));
+    card.append(row);
+   });root.append(card);
+  })
  }
  $("historyDialog").showModal();
 }
@@ -68,7 +91,7 @@ function rowOperationStatus(r){
 }
 function tickOperationClock(){
  if(!activeOperation)return;
- document.querySelectorAll("[data-processing-clock]").forEach(n=>n.textContent="◷ "+elapsedTime(Date.now()-activeOperation.started));
+ document.querySelectorAll("[data-processing-clock]").forEach(n=>n.textContent="◷ "+elapsedTime(Date.now()-activeOperation.started));document.querySelectorAll(".history-pending").forEach(n=>n.title="Actualização em curso · "+elapsedTime(Date.now()-activeOperation.started));
 }
 function stopOperationPolling(){clearInterval(operationTimer);operationTimer=null;operationPolling=false}
 function startOperationClock(){clearInterval(operationTimer);operationTimer=setInterval(()=>{tickOperationClock();checkOperation()},5000)}
@@ -158,7 +181,7 @@ function openShelf(s){
 function showShelf(s){$("shelfDetail").hidden=false;$("selectedShelf").textContent="Prateleira "+s;const root=$("shelfDocuments");root.replaceChildren();const found=sorted(records.filter(r=>r["Prateleira"]===s));if(!found.length){root.append(el("p","Nenhuma posição ocupada nesta prateleira.","empty"));return}const tbl=el("table"),head=el("thead"),body=el("tbody");const hr=el("tr");["Posição","Nome do ficheiro","Departamento","Período","Acções"].forEach(h=>hr.append(el("th",h)));head.append(hr);found.forEach(r=>{const tr=el("tr");[r["Posição"],r["Nome do Ficheiro"],r.Departamento,r["Período"]||computedPeriod(r)].forEach(t=>tr.append(el("td",t)));const td=el("td");td.append(actions(r));tr.append(td);body.append(tr)});tbl.append(head,body);root.append(tbl)}
 function actions(r){const span=el("div",undefined,"actions");const edit=el("button","Editar / Mover");edit.addEventListener("click",()=>editRow(r.ID));const remove=el("button","Eliminar","remove");remove.addEventListener("click",()=>askDelete(r.ID));span.append(edit,remove);return span}
 function computedPeriod(r){const a=trim(r["Ano Início"]),b=trim(r["Ano Fim"]);return a?(b&&b!==a?a+"–"+b:a):"—"}
-function renderTable(){const q=trim($("filterSearch").value).toLocaleLowerCase("pt"),dep=$("filterDept").value,shelf=$("filterShelf").value,year=num($("filterYear").value);const all=sorted(records).filter(r=>(!q||[r["Nome do Ficheiro"],r.Observações,r.Departamento,r["Prateleira"]].some(x=>trim(x).toLocaleLowerCase("pt").includes(q)))&&(!dep||r.Departamento===dep)&&(!shelf||r["Prateleira"]===shelf)&&(!year||(num(r["Ano Início"])<=year&&year<=num(r["Ano Fim"]||r["Ano Início"]))));$("filterCount").textContent=all.length+" resultado(s)";const root=$("docsBody");root.replaceChildren();for(const r of all){const tr=el("tr");const loc=el("td",r["Prateleira"]+" · Posição "+r["Posição"],"loc");const doc=el("td",r["Nome do Ficheiro"]);const depCell=el("td",r.Departamento);const period=el("td",r["Período"]||computedPeriod(r));const history=el("td");const historyBtn=el("button","Ver histórico","history-btn");historyBtn.type="button";historyBtn.addEventListener("click",()=>viewHistory(r));history.append(historyBtn);const act=el("td");const activity=rowOperationStatus(r);if(activity)doc.append(activity);act.append(actions(r));tr.append(loc,doc,depCell,period,history,act);root.append(tr)}if(!all.length){const row=el("tr"),td=el("td","Nenhum documento encontrado.","empty");td.colSpan=6;row.append(td);root.append(row)}}
+function renderTable(){const q=trim($("filterSearch").value).toLocaleLowerCase("pt"),dep=$("filterDept").value,shelf=$("filterShelf").value,year=num($("filterYear").value);const all=sorted(records).filter(r=>(!q||[r["Nome do Ficheiro"],r.Observações,r.Departamento,r["Prateleira"]].some(x=>trim(x).toLocaleLowerCase("pt").includes(q)))&&(!dep||r.Departamento===dep)&&(!shelf||r["Prateleira"]===shelf)&&(!year||(num(r["Ano Início"])<=year&&year<=num(r["Ano Fim"]||r["Ano Início"]))));$("filterCount").textContent=all.length+" resultado(s)";const root=$("docsBody");root.replaceChildren();for(const r of all){const tr=el("tr");const loc=el("td",r["Prateleira"]+" · Posição "+r["Posição"],"loc");const doc=el("td",r["Nome do Ficheiro"]);const depCell=el("td",r.Departamento);const period=el("td",r["Período"]||computedPeriod(r));const history=el("td");const isProcessing=!!activeOperation&&String(activeOperation.docId)===String(r.ID);const historyBtn=el("button",isProcessing?"◷ Pendente":"Ver histórico","history-btn"+(isProcessing?" history-pending":""));historyBtn.type="button";if(isProcessing)historyBtn.title="Actualização em curso · "+elapsedTime(Date.now()-activeOperation.started);historyBtn.addEventListener("click",()=>viewHistory(r));history.append(historyBtn);const act=el("td");const activity=rowOperationStatus(r);if(activity)doc.append(activity);act.append(actions(r));tr.append(loc,doc,depCell,period,history,act);root.append(tr)}if(!all.length){const row=el("tr"),td=el("td","Nenhum documento encontrado.","empty");td.colSpan=6;row.append(td);root.append(row)}}
 function updatePositionChoices(preferred="") {
   const fields=$("docForm").elements, shelf=trim(fields.prateleira.value);
   const select=fields.posicao, current=String(preferred||select.value||"");
