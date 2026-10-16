@@ -74,7 +74,7 @@ function viewHistory(r){
     const textual=line.match(/^(.+?)\s+(?:de\s+)(.+?)\s+(?:para\s+)(.+)$/i);
     if(arrow){
      const [from,to]=line.split(arrow,2);
-     const before=el("span",from.trim(),"change-before"),icon=el("span","→","change-arrow"),after=el("span",to.trim(),"change-after");
+     const parts=from.trim().match(/^(.*?:\s*)([^:]+)$/);const before=el("span",parts?parts[2].trim():from.trim(),"change-before"),icon=el("span","→","change-arrow"),after=el("span",to.trim(),"change-after");if(parts)row.append(el("b",parts[1].trim()+" ","change-label"));
      row.append(before,icon,after);row.classList.add("history-change");
     }else if(textual){
      row.append(el("b",textual[1]+" · ","change-label"),el("span",textual[2],"change-before"),el("span","→","change-arrow"),el("span",textual[3],"change-after"));row.classList.add("history-change");
