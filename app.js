@@ -166,7 +166,7 @@ function render(){
 records=records.map(normalized);
 const all=sorted(validRecords());
 const withoutPosition=records.filter(r=>!validLocation(r));
-if(withoutPosition.length)alertMsg("Atenção: "+withoutPosition.length+" registo(s) chegaram sem uma Posição válida do Excel. Confirme a coluna Posição na resposta do Power Automate.",true);
+// Registos com localização inválida não entram nas contagens nem geram alerta na página principal.
 $("totalDocs").textContent=all.length;
 $("usedShelves").textContent=new Set(all.map(x=>x["Prateleira"])).size;
 $("totalDepts").textContent=unique(all.map(x=>x.Departamento)).length;
