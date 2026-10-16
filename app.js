@@ -13,6 +13,7 @@ let endpoint=sessionStorage.getItem("arquivo_consulta_url")||"";
 let updateEndpoint=sessionStorage.getItem("arquivo_update_url")||"";
 let pendingUpdate=null;
 let activeOperation=null,operationTimer=null,operationPolling=false;
+let latestOperationState="";
 const isDemo=()=>!endpoint;
 const collator=new Intl.Collator('pt',{numeric:true,sensitivity:'base'});
 const trim=v=>String(v??'').trim();
@@ -32,13 +33,22 @@ function normalized(r){
 }
 function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=String(text);if(cls)node.className=cls;return node}
 function operationStatus(state,title,description,id=""){
- const node=$("operationStatus");
- node.hidden=false;
- node.dataset.state=state;
- $("operationIcon").textContent=({sending:"⏳",pending:"🟡",uncertain:"⚠️",error:"🔴",demo:"✅"})[state]||"ℹ️";
- $("operationTitle").textContent=title;
- $("operationDescription").textContent=description;
- $("operationReference").textContent=id?"Pedido: "+id:"";
+ const nav=document.querySelector('.nav[data-view="consulta"]');
+ nav.classList.toggle("consult-pending",["sending","pending","uncertain"].includes(state));
+ nav.classList.toggle("consult-done",state==="demo");
+ latestOperationState=state;
+ nav.title=description+(id?" · Pedido: "+id:"");
+}
+function viewHistory(r){
+ $("historyDocName").textContent=r["Nome do Ficheiro"]+" · Documento "+r.ID;
+ const raw=trim(fieldByHeader(r,"Actualização"));
+ const root=$("historyContent");root.replaceChildren();
+ if(!raw){root.append(el("p","Ainda não existe histórico de alterações registado para este documento.","empty"))}
+ else{
+   const entries=raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+   entries.forEach(entry=>root.append(el("p",entry,"history-entry")));
+ }
+ $("historyDialog").showModal();
 }
 function elapsedTime(ms){const seconds=Math.floor(ms/1000);return String(Math.floor(seconds/60)).padStart(2,"0")+":"+String(seconds%60).padStart(2,"0")}
 function rowMatchesUpdate(found,target){
@@ -50,7 +60,7 @@ function rowOperationStatus(r){
  const cell=el("div",undefined,"row-processing");
  const clock=el("span","◷ "+elapsedTime(Date.now()-activeOperation.started),"row-clock");
  clock.dataset.processingClock="true";
- cell.append(clock,el("span",activeOperation.phase==="confirmed"?"Actualizado":activeOperation.phase==="uncertain"?"A verificar…":"A processar…"));
+ cell.append(clock,el("span",activeOperation.phase==="uncertain"?"A verificar…":"A processar…"));
  return cell;
 }
 function tickOperationClock(){
@@ -63,7 +73,7 @@ async function checkOperation(){
  if(!op||operationPolling||isDemo())return;
  if(Date.now()-op.started>10*60*1000){
   stopOperationPolling();op.phase="uncertain";
-  operationStatus("uncertain","Ainda sem confirmação","Passaram 10 minutos. Verifique a operação pelo ID_Pedido no SharePoint antes de submeter outra vez.",op.id);
+  operationStatus("uncertain","Ainda sem confirmação","Passaram 10 minutos. Consulte o ID_Pedido no SharePoint antes de submeter outra vez.",op.id);
   renderTable();return;
  }
  operationPolling=true;
@@ -78,9 +88,9 @@ async function checkOperation(){
   const freshEvidence=wasDifferent||(baseline!==current&&Boolean(current));
   if(found&&rowMatchesUpdate(found,op.target)&&freshEvidence){
    op.phase="confirmed";stopOperationPolling();pendingUpdate=null;
-   records=fresh;render();
-   operationStatus("demo","Alteração visível no Excel","A consulta devolveu os novos dados do documento após a actualização.",op.id);
    activeOperation=null;
+   records=fresh;render();
+   operationStatus("demo","Actualização concluída","Alteração confirmada pelos dados da consulta.",op.id);
   }
  }catch(e){/* O relógio continua enquanto a consulta estiver temporariamente indisponível. */}
  finally{operationPolling=false}
@@ -144,7 +154,7 @@ function openShelf(s){
 function showShelf(s){$("shelfDetail").hidden=false;$("selectedShelf").textContent="Prateleira "+s;const root=$("shelfDocuments");root.replaceChildren();const found=sorted(records.filter(r=>r["Prateleira"]===s));if(!found.length){root.append(el("p","Nenhuma posição ocupada nesta prateleira.","empty"));return}const tbl=el("table"),head=el("thead"),body=el("tbody");const hr=el("tr");["Posição","Nome do ficheiro","Departamento","Período","Acções"].forEach(h=>hr.append(el("th",h)));head.append(hr);found.forEach(r=>{const tr=el("tr");[r["Posição"],r["Nome do Ficheiro"],r.Departamento,r["Período"]||computedPeriod(r)].forEach(t=>tr.append(el("td",t)));const td=el("td");td.append(actions(r));tr.append(td);body.append(tr)});tbl.append(head,body);root.append(tbl)}
 function actions(r){const span=el("div",undefined,"actions");const edit=el("button","Editar / Mover");edit.addEventListener("click",()=>editRow(r.ID));const remove=el("button","Eliminar","remove");remove.addEventListener("click",()=>askDelete(r.ID));span.append(edit,remove);return span}
 function computedPeriod(r){const a=trim(r["Ano Início"]),b=trim(r["Ano Fim"]);return a?(b&&b!==a?a+"–"+b:a):"—"}
-function renderTable(){const q=trim($("filterSearch").value).toLocaleLowerCase("pt"),dep=$("filterDept").value,shelf=$("filterShelf").value,year=num($("filterYear").value);const all=sorted(records).filter(r=>(!q||[r["Nome do Ficheiro"],r.Observações,r.Departamento,r["Prateleira"]].some(x=>trim(x).toLocaleLowerCase("pt").includes(q)))&&(!dep||r.Departamento===dep)&&(!shelf||r["Prateleira"]===shelf)&&(!year||(num(r["Ano Início"])<=year&&year<=num(r["Ano Fim"]||r["Ano Início"]))));$("filterCount").textContent=all.length+" resultado(s)";const root=$("docsBody");root.replaceChildren();for(const r of all){const tr=el("tr");const loc=el("td",r["Prateleira"]+" · Posição "+r["Posição"],"loc");const doc=el("td",r["Nome do Ficheiro"]);const depCell=el("td",r.Departamento);const period=el("td",r["Período"]||computedPeriod(r));const act=el("td");const activity=rowOperationStatus(r);if(activity)doc.append(activity);act.append(actions(r));tr.append(loc,doc,depCell,period,act);root.append(tr)}if(!all.length){const row=el("tr"),td=el("td","Nenhum documento encontrado.","empty");td.colSpan=5;row.append(td);root.append(row)}}
+function renderTable(){const q=trim($("filterSearch").value).toLocaleLowerCase("pt"),dep=$("filterDept").value,shelf=$("filterShelf").value,year=num($("filterYear").value);const all=sorted(records).filter(r=>(!q||[r["Nome do Ficheiro"],r.Observações,r.Departamento,r["Prateleira"]].some(x=>trim(x).toLocaleLowerCase("pt").includes(q)))&&(!dep||r.Departamento===dep)&&(!shelf||r["Prateleira"]===shelf)&&(!year||(num(r["Ano Início"])<=year&&year<=num(r["Ano Fim"]||r["Ano Início"]))));$("filterCount").textContent=all.length+" resultado(s)";const root=$("docsBody");root.replaceChildren();for(const r of all){const tr=el("tr");const loc=el("td",r["Prateleira"]+" · Posição "+r["Posição"],"loc");const doc=el("td",r["Nome do Ficheiro"]);const depCell=el("td",r.Departamento);const period=el("td",r["Período"]||computedPeriod(r));const history=el("td");const historyBtn=el("button","Ver histórico","history-btn");historyBtn.type="button";historyBtn.addEventListener("click",()=>viewHistory(r));history.append(historyBtn);const act=el("td");const activity=rowOperationStatus(r);if(activity)doc.append(activity);act.append(actions(r));tr.append(loc,doc,depCell,period,history,act);root.append(tr)}if(!all.length){const row=el("tr"),td=el("td","Nenhum documento encontrado.","empty");td.colSpan=6;row.append(td);root.append(row)}}
 function updatePositionChoices(preferred="") {
   const fields=$("docForm").elements, shelf=trim(fields.prateleira.value);
   const select=fields.posicao, current=String(preferred||select.value||"");
@@ -172,7 +182,7 @@ async function save(ev){ev.preventDefault();if(!isDemo()&&(editID==null||!update
  pendingUpdate=idPedido;
  const previous={...(records.find(r=>String(r.ID)===String(editID))||{})};
  beginOperation(idPedido,editID,row,previous);
- operationStatus("sending","A enviar actualização…","O pedido está a ser enviado ao Power Automate. Não feche a página nem volte a submeter.",idPedido);
+ operationStatus("sending","A enviar actualização…","Pedido em processamento.",idPedido);
  const controller=new AbortController(),t=setTimeout(()=>controller.abort(),CFG.timeoutMs||20000);
  let response;
  try{response=await fetch(updateEndpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:editID,id_pedido:idPedido,record:row}),signal:controller.signal})}finally{clearTimeout(t)}
@@ -188,8 +198,8 @@ async function save(ev){ev.preventDefault();if(!isDemo()&&(editID==null||!update
  }
  if(!result.id_pedido&&!result.ID_Pedido)throw Error("Pedido enviado com ID "+idPedido+", mas não foi devolvida confirmação; verifique a fila SharePoint.");
  if(activeOperation)activeOperation.phase="processing";
- operationStatus("pending","Pedido recebido — a aguardar processamento","O SharePoint recebeu o pedido. O Excel poderá ainda não estar actualizado. Aguarde a conclusão no processador.",idPedido);
- clearForm();show("consulta");alertMsg("Pedido de alteração recebido ("+(result.id_pedido||result.ID_Pedido)+"). Aguarda processamento no SharePoint. Use Actualizar para consultar os dados após a conclusão.");return
+ operationStatus("pending","Pedido em processamento","A aguardar confirmação dos dados do Excel.",idPedido);
+ clearForm();show("consulta");return
 }clearForm();render();show("consulta");alertMsg("Operação simulada. Os dados não foram enviados ao SharePoint.")}catch(e){
  if(activeOperation&&pendingUpdate){activeOperation.phase="uncertain";renderTable()}
  const message=e.name==="AbortError"?"Tempo limite ao contactar o Power Automate. Verifica o estado do pedido no SharePoint antes de tentares novamente.":e instanceof TypeError?"Falha de comunicação com o Power Automate (URL, CORS ou rede). Verifica a ligação e não repitas o pedido antes de consultar a fila no SharePoint.":e.message;
@@ -218,4 +228,5 @@ $("connectBtn").addEventListener("click",()=>{$("apiUrlInput").value=endpoint;$(
 $("closeConnection").addEventListener("click",()=>$("connectionDialog").close());
 $("disconnectBtn").addEventListener("click",()=>{endpoint="";sessionStorage.removeItem("arquivo_consulta_url");updateEndpoint="";sessionStorage.removeItem("arquivo_update_url");records=[];load.hasDemo=false;$("connectionDialog").close();load()});
 $("saveConnection").addEventListener("click",async()=>{const url=trim($("apiUrlInput").value);if(!/^https:\/\//i.test(url)){alertMsg("Introduza uma URL HTTPS válida.",true);return}const candidateUpdate=trim($("updateUrlInput").value);if(candidateUpdate&&!/^https:\/\//i.test(candidateUpdate)){alertMsg("A URL de actualização deve utilizar HTTPS.",true);return}endpoint=url;sessionStorage.setItem("arquivo_consulta_url",url);updateEndpoint=candidateUpdate;if(updateEndpoint)sessionStorage.setItem("arquivo_update_url",updateEndpoint);else sessionStorage.removeItem("arquivo_update_url");$("connectionDialog").close();await load()});
+$("closeHistory").addEventListener("click",()=> $("historyDialog").close());
 load();
