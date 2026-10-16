@@ -14,6 +14,9 @@ let updateEndpoint=sessionStorage.getItem("arquivo_update_url")||"";
 let pendingUpdate=null;
 let activeOperation=null,operationTimer=null,operationPolling=false;
 let latestOperationState="";
+const operationStorageKey="arquivo_operacao_em_curso";
+function persistOperation(){if(activeOperation)sessionStorage.setItem(operationStorageKey,JSON.stringify(activeOperation));else sessionStorage.removeItem(operationStorageKey)}
+function restoreOperation(){try{const saved=JSON.parse(sessionStorage.getItem(operationStorageKey)||"null");if(saved&&saved.id&&saved.docId!=null&&saved.target&&saved.previous&&Number.isFinite(saved.started)){activeOperation=saved;pendingUpdate=saved.id;operationStatus("pending","Pedido em processamento","A acompanhar actualização.",saved.id);startOperationClock()}}catch{sessionStorage.removeItem(operationStorageKey)}}
 const isDemo=()=>!endpoint;
 const collator=new Intl.Collator('pt',{numeric:true,sensitivity:'base'});
 const trim=v=>String(v??'').trim();
@@ -68,13 +71,14 @@ function tickOperationClock(){
  document.querySelectorAll("[data-processing-clock]").forEach(n=>n.textContent="◷ "+elapsedTime(Date.now()-activeOperation.started));
 }
 function stopOperationPolling(){clearInterval(operationTimer);operationTimer=null;operationPolling=false}
+function startOperationClock(){clearInterval(operationTimer);operationTimer=setInterval(()=>{tickOperationClock();checkOperation()},5000)}
 async function checkOperation(){
  const op=activeOperation;
  if(!op||operationPolling||isDemo())return;
- if(Date.now()-op.started>10*60*1000){
-  stopOperationPolling();op.phase="uncertain";
-  operationStatus("uncertain","Ainda sem confirmação","Passaram 10 minutos. Consulte o ID_Pedido no SharePoint antes de submeter outra vez.",op.id);
-  renderTable();return;
+ if(Date.now()-op.started>10*60*1000&&op.phase!=="uncertain"){
+  op.phase="uncertain";persistOperation();
+  operationStatus("uncertain","Ainda sem confirmação","A verificação continua. Consulte o ID_Pedido no SharePoint se necessário.",op.id);
+  renderTable();
  }
  operationPolling=true;
  try{
@@ -88,7 +92,7 @@ async function checkOperation(){
   const freshEvidence=wasDifferent||(baseline!==current&&Boolean(current));
   if(found&&rowMatchesUpdate(found,op.target)&&freshEvidence){
    op.phase="confirmed";stopOperationPolling();pendingUpdate=null;
-   activeOperation=null;
+   activeOperation=null;persistOperation();
    records=fresh;render();
    operationStatus("demo","Actualização concluída","Alteração confirmada pelos dados da consulta.",op.id);
   }
@@ -97,8 +101,8 @@ async function checkOperation(){
 }
 function beginOperation(id,docId,target,previous){
  activeOperation={id,docId,target,previous,started:Date.now(),phase:"processing"};
- stopOperationPolling();
- operationTimer=setInterval(()=>{tickOperationClock();checkOperation()},5000);
+ stopOperationPolling();persistOperation();
+ startOperationClock();
  renderTable();
  checkOperation();
 }
@@ -193,15 +197,15 @@ async function save(ev){ev.preventDefault();if(!isDemo()&&(editID==null||!update
    const detail=typeof result.message==="string"?result.message:
      (typeof result.error?.message==="string"?result.error.message:"");
    const reason=({400:"Pedido inválido ou esquema JSON incompatível.",401:"Autenticação recusada. Confirme a opção Who can trigger the flow.",403:"Sem autorização para executar o fluxo.",404:"URL de actualização incorrecta ou desactualizada.",429:"Limite de pedidos excedido.",500:"Erro interno do Power Automate.",502:"Erro de comunicação com o serviço.",503:"Serviço temporariamente indisponível."})[response.status]||"O pedido não foi aceite pelo serviço.";
-   if(response.status===400||response.status===401||response.status===403||response.status===404){pendingUpdate=null;stopOperationPolling();activeOperation=null;renderTable()}
+   if(response.status===400||response.status===401||response.status===403||response.status===404){pendingUpdate=null;stopOperationPolling();activeOperation=null;persistOperation();renderTable()}
    throw Error("HTTP "+response.status+" — "+(detail||reason));
  }
  if(!result.id_pedido&&!result.ID_Pedido)throw Error("Pedido enviado com ID "+idPedido+", mas não foi devolvida confirmação; verifique a fila SharePoint.");
- if(activeOperation)activeOperation.phase="processing";
+ if(activeOperation){activeOperation.phase="processing";persistOperation()}
  operationStatus("pending","Pedido em processamento","A aguardar confirmação dos dados do Excel.",idPedido);
  clearForm();show("consulta");return
 }clearForm();render();show("consulta");alertMsg("Operação simulada. Os dados não foram enviados ao SharePoint.")}catch(e){
- if(activeOperation&&pendingUpdate){activeOperation.phase="uncertain";renderTable()}
+ if(activeOperation&&pendingUpdate){activeOperation.phase="uncertain";persistOperation();renderTable()}
  const message=e.name==="AbortError"?"Tempo limite ao contactar o Power Automate. Verifica o estado do pedido no SharePoint antes de tentares novamente.":e instanceof TypeError?"Falha de comunicação com o Power Automate (URL, CORS ou rede). Verifica a ligação e não repitas o pedido antes de consultar a fila no SharePoint.":e.message;
  operationStatus(pendingUpdate?"uncertain":"error",pendingUpdate?"Estado ainda não confirmado":"Pedido não aceite",pendingUpdate?"A resposta não chegou ou foi inconclusiva. Consulte a lista SharePoint pelo ID antes de voltar a tentar.":"A operação não foi confirmada. Reveja a mensagem de erro abaixo.",pendingUpdate||"");
  alertMsg("Não foi possível confirmar o pedido"+(pendingUpdate?" (ID: "+pendingUpdate+")":"")+": "+message,true)
@@ -229,4 +233,5 @@ $("closeConnection").addEventListener("click",()=>$("connectionDialog").close())
 $("disconnectBtn").addEventListener("click",()=>{endpoint="";sessionStorage.removeItem("arquivo_consulta_url");updateEndpoint="";sessionStorage.removeItem("arquivo_update_url");records=[];load.hasDemo=false;$("connectionDialog").close();load()});
 $("saveConnection").addEventListener("click",async()=>{const url=trim($("apiUrlInput").value);if(!/^https:\/\//i.test(url)){alertMsg("Introduza uma URL HTTPS válida.",true);return}const candidateUpdate=trim($("updateUrlInput").value);if(candidateUpdate&&!/^https:\/\//i.test(candidateUpdate)){alertMsg("A URL de actualização deve utilizar HTTPS.",true);return}endpoint=url;sessionStorage.setItem("arquivo_consulta_url",url);updateEndpoint=candidateUpdate;if(updateEndpoint)sessionStorage.setItem("arquivo_update_url",updateEndpoint);else sessionStorage.removeItem("arquivo_update_url");$("connectionDialog").close();await load()});
 $("closeHistory").addEventListener("click",()=> $("historyDialog").close());
+restoreOperation();
 load();
