@@ -25,3 +25,5 @@
 .history-change{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 .change-label{color:#334155}.change-before{background:#fff0ef;color:#aa403b;border:1px solid #f2d5d3;padding:3px 8px;border-radius:6px;text-decoration:line-through;text-decoration-color:#d2938d}
 .change-arrow{font-weight:900;color:#64748b}.change-after{background:#e5f6eb;color:#166b3b;border:1px solid #bfe8cc;padding:3px 8px;border-radius:6px;font-weight:650}
+
+.pending-create-row{background:#fffdf3}.pending-create-row td{border-bottom:1px solid #f0dfa9}.pending-create-cell{color:#855c04;font-weight:700}.pending-create-row .row-processing{display:flex;align-items:center;color:#916300;font-variant-numeric:tabular-nums;font-size:12px}
