@@ -46,12 +46,20 @@ function viewHistory(r){
  if(!raw){root.append(el("p","Ainda não existem alterações registadas para este documento.","empty"))}
  else{
   // Os registos acumulados no Excel são exibidos sem alterar o texto original.
-  const lines=raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  const lines=raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean)
+   .filter(x=>!/^[-–—_\s]{3,}$/.test(x));
   const groups=[];let current=[];
+  const datePattern=/^\[?\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?\]?\s*$/;
+  const isDate=line=>datePattern.test(line);
+  const isEntryStart=line=>/^(?:actualiza[çc][ãa]o\s*(?:em|de|:)|alterad[oa]\s*(?:em|por|:))/i.test(line);
   for(const line of lines){
-   const header=/^(?:\[?\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}|actualiza[çc][ãa]o\s*(?:em|de|:)|alterad[oa]\s*(?:em|por|:)|respons[aá]vel\s*:)/i.test(line);
-   if(header&&current.length){groups.push(current);current=[]}
-   current.push(line);
+   // A data é o cabeçalho do próprio registo; nunca constitui um cartão separado.
+   if(isDate(line)){
+    if(current.length)groups.push(current);
+    current=[line];
+   }else if(isEntryStart(line)&&current.length&&!isDate(current[0])){
+    groups.push(current);current=[line];
+   }else current.push(line);
   }
   if(current.length)groups.push(current);
   groups.forEach((lines,index)=>{
@@ -60,6 +68,7 @@ function viewHistory(r){
    heading.append(el("span","◷","history-card-icon"),el("strong","Registo "+String(index+1).padStart(2,"0")));
    card.append(heading);
    lines.forEach(line=>{
+    if(/^[-–—_\\s]{3,}$/.test(line))return;
     const row=el("div",undefined,"history-line");
     const arrow=line.includes("→")?"→":line.includes("=>")?"=>":null;
     const textual=line.match(/^(.+?)\s+(?:de\s+)(.+?)\s+(?:para\s+)(.+)$/i);
