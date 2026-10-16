@@ -34,6 +34,8 @@ const collator=new Intl.Collator('pt',{numeric:true,sensitivity:'base'});
 const trim=v=>String(v??'').trim();
 function num(v){return Number(v)||0}
 function positionKey(r){return trim(r["Prateleira"]).toUpperCase()+"#"+String(r["Posição"]??("SEM_POSICAO_"+r.ID))}
+function validLocation(r){return /^[A-Z][1-6]$/.test(trim(r["Prateleira"]).toUpperCase())&&Number.isSafeInteger(r["Posição"])&&r["Posição"]>=1}
+function validRecords(){return records.filter(validLocation)}
 function sorted(rows){return [...rows].sort((a,b)=>collator.compare(trim(a["Prateleira"]),trim(b["Prateleira"]))||num(a["Posição"])-num(b["Posição"])||collator.compare(trim(a["Nome do Ficheiro"]),trim(b["Nome do Ficheiro"])))}
 function fieldByHeader(row,header){
   const normalizedKey=v=>String(v).normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-zA-Z0-9]/g,"").toLowerCase();
@@ -153,17 +155,17 @@ async function checkOperations(){
 }
 function beginOperation(id,docId,target,previous,kind="update"){
  activeOperations.set(String(docId),{id,docId,target,previous,kind,previousIds:kind==="create"?records.map(r=>String(r.ID)):[],started:Date.now(),phase:"processing"});
- persistOperation();startOperationClock();renderTable();
+ persistOperation();startOperationClock();updatePositionChoices();renderTable();
 }
 function alertMsg(text,error=false){const n=$("message");n.textContent=text;n.className=error?"error":"success";n.hidden=false;window.scrollTo({top:0,behavior:'smooth'});clearTimeout(alertMsg.timer);alertMsg.timer=setTimeout(()=>n.hidden=true,7000)}
 function show(view){document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!==view);document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===view));const t={dashboard:['Painel geral','Localize e acompanhe os documentos arquivados.'],mapa:['Mapa do arquivo','Explore prateleiras e posições físicas.'],consulta:['Consultar documentos','Pesquise, edite ou reposicione registos.'],novo:[editID==null?'Novo registo':'Editar documento','Registe ou actualize a localização de um documento.']};$("pageTitle").textContent=t[view][0];$("pageSubtitle").textContent=t[view][1];window.scrollTo({top:0,behavior:'smooth'})}
-function locationsOccupied(row,ignoreID){return records.find(r=>positionKey(r)===positionKey(row)&&String(r.ID)!==String(ignoreID??''))}
+function locationsOccupied(row,ignoreID){return validRecords().find(r=>positionKey(r)===positionKey(row)&&String(r.ID)!==String(ignoreID??''))}
 function unique(values){return [...new Set(values.map(trim).filter(Boolean))].sort(collator.compare)}
 function renderSelect(id,values,all){const input=$(id),old=input.value;input.replaceChildren(new Option(all,""));values.forEach(v=>input.add(new Option(v,v)));input.value=values.includes(old)?old:""}
 function render(){
 records=records.map(normalized);
-const all=sorted(records);
-const withoutPosition=records.filter(r=>r["Posição"]===null);
+const all=sorted(validRecords());
+const withoutPosition=records.filter(r=>!validLocation(r));
 if(withoutPosition.length)alertMsg("Atenção: "+withoutPosition.length+" registo(s) chegaram sem uma Posição válida do Excel. Confirme a coluna Posição na resposta do Power Automate.",true);
 $("totalDocs").textContent=all.length;
 $("usedShelves").textContent=new Set(all.map(x=>x["Prateleira"])).size;
@@ -191,7 +193,7 @@ renderMap();renderTable();
 if(selectedShelf)showShelf(selectedShelf);
 $("syncState").textContent=isDemo()?"● Modo demonstração":("● Consulta configurada · Actualização "+(updateEndpoint?"configurada":"não configurada"));
 }
-function renderMap(){const group=$("shelfGroup").value;const map=$("shelfMap");map.replaceChildren();for(const s of configuredShelves.filter(s=>!group||s[0]===group)){const count=records.filter(r=>r["Prateleira"]===s).length;const btn=el("button",undefined,"shelf"+(count>0?" occupied":"")+(selectedShelf===s?" selected":""));btn.append(el("b",s),el("span",count+" posição(ões) ocupada(s)"));btn.addEventListener("click",()=>openShelf(s));map.append(btn)}}
+function renderMap(){const group=$("shelfGroup").value;const map=$("shelfMap");map.replaceChildren();for(const s of configuredShelves.filter(s=>!group||s[0]===group)){const count=validRecords().filter(r=>r["Prateleira"]===s).length;const btn=el("button",undefined,"shelf"+(count>0?" occupied":"")+(selectedShelf===s?" selected":""));btn.append(el("b",s),el("span",count+" posição(ões) ocupada(s)"));btn.addEventListener("click",()=>openShelf(s));map.append(btn)}}
 function scrollToArchiveElement(node){
   if(!node)return;
   const reduceMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -204,19 +206,19 @@ function openShelf(s){
   showShelf(s);
   requestAnimationFrame(()=>scrollToArchiveElement($("shelfDetail")));
 }
-function showShelf(s){$("shelfDetail").hidden=false;$("selectedShelf").textContent="Prateleira "+s;const root=$("shelfDocuments");root.replaceChildren();const found=sorted(records.filter(r=>r["Prateleira"]===s));if(!found.length){root.append(el("p","Nenhuma posição ocupada nesta prateleira.","empty"));return}const tbl=el("table"),head=el("thead"),body=el("tbody");const hr=el("tr");["Posição","Nome do ficheiro","Departamento","Período","Acções"].forEach(h=>hr.append(el("th",h)));head.append(hr);found.forEach(r=>{const tr=el("tr");[r["Posição"],r["Nome do Ficheiro"],r.Departamento,r["Período"]||computedPeriod(r)].forEach(t=>tr.append(el("td",t)));const td=el("td");td.append(actions(r));tr.append(td);body.append(tr)});tbl.append(head,body);root.append(tbl)}
+function showShelf(s){$("shelfDetail").hidden=false;$("selectedShelf").textContent="Prateleira "+s;const root=$("shelfDocuments");root.replaceChildren();const found=sorted(validRecords().filter(r=>r["Prateleira"]===s));if(!found.length){root.append(el("p","Nenhuma posição ocupada nesta prateleira.","empty"));return}const tbl=el("table"),head=el("thead"),body=el("tbody");const hr=el("tr");["Posição","Nome do ficheiro","Departamento","Período","Acções"].forEach(h=>hr.append(el("th",h)));head.append(hr);found.forEach(r=>{const tr=el("tr");[r["Posição"],r["Nome do Ficheiro"],r.Departamento,r["Período"]||computedPeriod(r)].forEach(t=>tr.append(el("td",t)));const td=el("td");td.append(actions(r));tr.append(td);body.append(tr)});tbl.append(head,body);root.append(tbl)}
 function actions(r){const span=el("div",undefined,"actions");const edit=el("button","Editar / Mover");edit.disabled=!!pendingFor(r.ID);if(edit.disabled)edit.title="Aguarde a conclusão da actualização deste documento.";edit.addEventListener("click",()=>editRow(r.ID));const remove=el("button","Eliminar","remove");remove.addEventListener("click",()=>askDelete(r.ID));span.append(edit,remove);return span}
 function computedPeriod(r){const a=trim(r["Ano Início"]),b=trim(r["Ano Fim"]);return a?(b&&b!==a?a+"–"+b:a):"—"}
-function renderTable(){const q=trim($("filterSearch").value).toLocaleLowerCase("pt"),dep=$("filterDept").value,shelf=$("filterShelf").value,year=num($("filterYear").value);const all=sorted(records).filter(r=>(!q||[r["Nome do Ficheiro"],r.Observações,r.Departamento,r["Prateleira"]].some(x=>trim(x).toLocaleLowerCase("pt").includes(q)))&&(!dep||r.Departamento===dep)&&(!shelf||r["Prateleira"]===shelf)&&(!year||(num(r["Ano Início"])<=year&&year<=num(r["Ano Fim"]||r["Ano Início"]))));$("filterCount").textContent=all.length+" resultado(s)";const root=$("docsBody");root.replaceChildren();for(const r of all){const tr=el("tr");const loc=el("td",r["Prateleira"]+" · Posição "+r["Posição"],"loc");const doc=el("td",r["Nome do Ficheiro"]);const depCell=el("td",r.Departamento);const period=el("td",r["Período"]||computedPeriod(r));const history=el("td");const isProcessing=!!pendingFor(r.ID);const historyBtn=el("button",isProcessing?"◷ Pendente":"Ver histórico","history-btn"+(isProcessing?" history-pending":""));historyBtn.type="button";if(isProcessing){historyBtn.dataset.pendingHistory=String(r.ID);historyBtn.title="Actualização em curso · "+elapsedTime(Date.now()-pendingFor(r.ID).started)}historyBtn.addEventListener("click",()=>viewHistory(r));history.append(historyBtn);const act=el("td");const activity=rowOperationStatus(r);if(activity)doc.append(activity);act.append(actions(r));tr.append(loc,doc,depCell,period,history,act);root.append(tr)}for(const op of activeOperations.values())if(op.kind==="create"){const tr=el("tr");tr.className="pending-create-row";const doc=el("td",op.target["Nome do Ficheiro"]);const clock=el("div","◷ "+elapsedTime(Date.now()-op.started)+" · A registar…","row-processing");clock.dataset.createClock=op.id;doc.append(clock);const hist=el("td","◷ Pendente");hist.className="pending-create-cell";tr.append(el("td",op.target["Prateleira"]+" · Posição "+op.target["Posição"]),doc,el("td",op.target.Departamento),el("td",computedPeriod(op.target)),hist,el("td","Aguarda confirmação"));root.append(tr)}if(!all.length&&!activeOperations.size){const row=el("tr"),td=el("td","Nenhum documento encontrado.","empty");td.colSpan=6;row.append(td);root.append(row)}}
+function renderTable(){const q=trim($("filterSearch").value).toLocaleLowerCase("pt"),dep=$("filterDept").value,shelf=$("filterShelf").value,year=num($("filterYear").value);const all=sorted(validRecords()).filter(r=>(!q||[r["Nome do Ficheiro"],r.Observações,r.Departamento,r["Prateleira"]].some(x=>trim(x).toLocaleLowerCase("pt").includes(q)))&&(!dep||r.Departamento===dep)&&(!shelf||r["Prateleira"]===shelf)&&(!year||(num(r["Ano Início"])<=year&&year<=num(r["Ano Fim"]||r["Ano Início"]))));$("filterCount").textContent=all.length+" resultado(s)";const root=$("docsBody");root.replaceChildren();for(const r of all){const tr=el("tr");const loc=el("td",r["Prateleira"]+" · Posição "+r["Posição"],"loc");const doc=el("td",r["Nome do Ficheiro"]);const depCell=el("td",r.Departamento);const period=el("td",r["Período"]||computedPeriod(r));const history=el("td");const isProcessing=!!pendingFor(r.ID);const historyBtn=el("button",isProcessing?"◷ Pendente":"Ver histórico","history-btn"+(isProcessing?" history-pending":""));historyBtn.type="button";if(isProcessing){historyBtn.dataset.pendingHistory=String(r.ID);historyBtn.title="Actualização em curso · "+elapsedTime(Date.now()-pendingFor(r.ID).started)}historyBtn.addEventListener("click",()=>viewHistory(r));history.append(historyBtn);const act=el("td");const activity=rowOperationStatus(r);if(activity)doc.append(activity);act.append(actions(r));tr.append(loc,doc,depCell,period,history,act);root.append(tr)}for(const op of activeOperations.values())if(op.kind==="create"){const tr=el("tr");tr.className="pending-create-row";const doc=el("td",op.target["Nome do Ficheiro"]);const clock=el("div","◷ "+elapsedTime(Date.now()-op.started)+" · A registar…","row-processing");clock.dataset.createClock=op.id;doc.append(clock);const hist=el("td","◷ Pendente");hist.className="pending-create-cell";tr.append(el("td",op.target["Prateleira"]+" · Posição "+op.target["Posição"]),doc,el("td",op.target.Departamento),el("td",computedPeriod(op.target)),hist,el("td","Aguarda confirmação"));root.append(tr)}if(!all.length&&!activeOperations.size){const row=el("tr"),td=el("td","Nenhum documento encontrado.","empty");td.colSpan=6;row.append(td);root.append(row)}}
 function updatePositionChoices(preferred="") {
   const fields=$("docForm").elements, shelf=trim(fields.prateleira.value);
   const select=fields.posicao, current=String(preferred||select.value||"");
   select.replaceChildren(new Option(shelf?"Seleccionar posição livre":"Seleccione primeiro a prateleira",""));
   select.disabled=!shelf;
   if(!shelf)return;
-  const taken=new Set(records.filter(r=>r["Prateleira"]===shelf&&String(r.ID)!==String(editID??"")&&r["Posição"]!==null).map(r=>r["Posição"]));
+  const taken=new Set(validRecords().filter(r=>r["Prateleira"]===shelf&&String(r.ID)!==String(editID??"")).map(r=>r["Posição"]));
  for(const op of activeOperations.values())if(op.target["Prateleira"]===shelf&&String(op.docId)!==String(editID??""))taken.add(op.target["Posição"]);
-  const max=Math.max(0,...records.filter(r=>r["Prateleira"]===shelf&&r["Posição"]!==null).map(r=>r["Posição"]));
+  const max=Math.max(0,...taken,...validRecords().filter(r=>r["Prateleira"]===shelf).map(r=>r["Posição"]));
   // Apresenta apenas as posições livres de 1 até à última ocupada + 1.
   for(let pos=1;pos<=max+1;pos++)if(!taken.has(pos))select.add(new Option("Posição "+pos,String(pos)));
   if(current&&[...select.options].some(opt=>opt.value===current))select.value=current;
@@ -250,7 +252,7 @@ async function save(ev){ev.preventDefault();if(!isDemo()&&!updateEndpoint){alert
    const detail=typeof result.message==="string"?result.message:
      (typeof result.error?.message==="string"?result.error.message:"");
    const reason=({400:"Pedido inválido ou esquema JSON incompatível.",401:"Autenticação recusada. Confirme a opção Who can trigger the flow.",403:"Sem autorização para executar o fluxo.",404:"URL de actualização incorrecta ou desactualizada.",429:"Limite de pedidos excedido.",500:"Erro interno do Power Automate.",502:"Erro de comunicação com o serviço.",503:"Serviço temporariamente indisponível."})[response.status]||"O pedido não foi aceite pelo serviço.";
-   if([400,401,403,404].includes(response.status)){activeOperations.delete(String(requestDocId));persistOperation();renderTable();if(!activeOperations.size)stopOperationPolling()}
+   if([400,401,403,404].includes(response.status)){activeOperations.delete(String(requestDocId));persistOperation();updatePositionChoices();renderTable();if(!activeOperations.size)stopOperationPolling()}
    throw Error("HTTP "+response.status+" — "+(detail||reason));
  }
  if(!result.id_pedido&&!result.ID_Pedido)throw Error("Pedido enviado com ID "+idPedido+", mas não foi devolvida confirmação; verifique a fila SharePoint.");
