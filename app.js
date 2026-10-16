@@ -11,6 +11,7 @@ let departments=["Tesouraria","Contabilidade","Recursos Humanos"],configuredShel
 const $=id=>document.getElementById(id);
 let endpoint=sessionStorage.getItem("arquivo_consulta_url")||"";
 let updateEndpoint=sessionStorage.getItem("arquivo_update_url")||"";
+let pendingUpdate=null;
 const isDemo=()=>!endpoint;
 const collator=new Intl.Collator('pt',{numeric:true,sensitivity:'base'});
 const trim=v=>String(v??'').trim();
@@ -104,10 +105,12 @@ configuredShelves=unique(response.shelves.map(v=>typeof v==="string"?v:v.Pratele
 if(!Array.isArray(response.responsaveis))throw Error("A resposta do Power Automate não contém o array responsaveis.");
 responsaveis=unique(response.responsaveis.map(v=>typeof v==="string"?v:(v?.["Responsável"]??v?.Responsavel??"")));
 }render()}catch(e){alertMsg("Não foi possível carregar o arquivo: "+e.message,true)}finally{busy=false;$("refreshBtn").disabled=false}}
-async function save(ev){ev.preventDefault();if(!isDemo()&&(editID==null||!updateEndpoint)){alertMsg(editID==null?"O registo de novos documentos ainda não está ligado ao SharePoint.":"Configure primeiro a URL HTTP de pedidos de actualização em Ligar SharePoint.",true);return}if(busy)return;const f=$("docForm").elements;const yr=num(f.anoInicio.value),end=f.anoFim.value?num(f.anoFim.value):"";if(end&&end<yr){alertMsg("O ano final não pode ser anterior ao ano inicial.",true);return}const row={"Nome do Ficheiro":trim(f.nome.value),"Departamento":trim(f.departamento.value),"Prateleira":trim(f.prateleira.value),"Posição":num(f.posicao.value),"Ano Início":yr,"Ano Fim":end,"Observações":trim(f.observacoes.value),"Responsável":trim(f.responsavel.value)};if(!configuredShelves.includes(row["Prateleira"])||!departments.includes(row.Departamento)||!Number.isSafeInteger(row["Posição"])||row["Posição"]<1){alertMsg("Indique uma prateleira válida e uma posição inteira maior ou igual a 1.",true);return}const taken=locationsOccupied(row,editID);if(taken){alertMsg("Posição ocupada: "+taken["Nome do Ficheiro"]+" já está na prateleira "+row["Prateleira"]+", posição "+row["Posição"]+".",true);return}busy=true;$("saveBtn").disabled=true;try{if(isDemo()){if(editID==null){const next=Math.max(0,...records.map(r=>num(r.ID)))+1;records.push({...row,ID:next,"Período":computedPeriod(row)})}else{const idx=records.findIndex(r=>String(r.ID)===String(editID));if(idx<0)throw Error("Registo não encontrado.");records[idx]={...records[idx],...row,"Período":computedPeriod(row)}}}else{
+async function save(ev){ev.preventDefault();if(!isDemo()&&(editID==null||!updateEndpoint)){alertMsg(editID==null?"O registo de novos documentos ainda não está ligado ao SharePoint.":"Configure primeiro a URL HTTP de pedidos de actualização em Ligar SharePoint.",true);return}if(busy)return;const f=$("docForm").elements;const yr=num(f.anoInicio.value),end=f.anoFim.value?num(f.anoFim.value):"";if(end&&end<yr){alertMsg("O ano final não pode ser anterior ao ano inicial.",true);return}const row={"Nome do Ficheiro":trim(f.nome.value),"Departamento":trim(f.departamento.value),"Prateleira":trim(f.prateleira.value),"Posição":num(f.posicao.value),"Ano Início":yr,"Ano Fim":end,"Observações":trim(f.observacoes.value),"Responsável":trim(f.responsavel.value)};if(!configuredShelves.includes(row["Prateleira"])||!departments.includes(row.Departamento)||!Number.isSafeInteger(row["Posição"])||row["Posição"]<1){alertMsg("Indique uma prateleira válida e uma posição inteira maior ou igual a 1.",true);return}const taken=locationsOccupied(row,editID);if(taken){alertMsg("Posição ocupada: "+taken["Nome do Ficheiro"]+" já está na prateleira "+row["Prateleira"]+", posição "+row["Posição"]+".",true);return}if(!isDemo()&&pendingUpdate){alertMsg("Há um pedido anterior cujo resultado ainda não foi confirmado (ID: "+pendingUpdate+"). Verifique a lista SharePoint antes de enviar outro.",true);return}busy=true;$("saveBtn").disabled=true;try{if(isDemo()){if(editID==null){const next=Math.max(0,...records.map(r=>num(r.ID)))+1;records.push({...row,ID:next,"Período":computedPeriod(row)})}else{const idx=records.findIndex(r=>String(r.ID)===String(editID));if(idx<0)throw Error("Registo não encontrado.");records[idx]={...records[idx],...row,"Período":computedPeriod(row)}}}else{
+ const idPedido=crypto.randomUUID();
+ pendingUpdate=idPedido;
  const controller=new AbortController(),t=setTimeout(()=>controller.abort(),CFG.timeoutMs||20000);
  let response;
- try{response=await fetch(updateEndpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:editID,record:row}),signal:controller.signal})}finally{clearTimeout(t)}
+ try{response=await fetch(updateEndpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:editID,id_pedido:idPedido,record:row}),signal:controller.signal})}finally{clearTimeout(t)}
  const raw=await response.text();
  let result={};
  try{result=raw?JSON.parse(raw):{}}catch{throw Error("HTTP "+response.status+": resposta não é JSON válido. Confirma a acção Response no Power Automate.")}
@@ -115,13 +118,15 @@ async function save(ev){ev.preventDefault();if(!isDemo()&&(editID==null||!update
    const detail=typeof result.message==="string"?result.message:
      (typeof result.error?.message==="string"?result.error.message:"");
    const reason=({400:"Pedido inválido ou esquema JSON incompatível.",401:"Autenticação recusada. Confirme a opção Who can trigger the flow.",403:"Sem autorização para executar o fluxo.",404:"URL de actualização incorrecta ou desactualizada.",429:"Limite de pedidos excedido.",500:"Erro interno do Power Automate.",502:"Erro de comunicação com o serviço.",503:"Serviço temporariamente indisponível."})[response.status]||"O pedido não foi aceite pelo serviço.";
+   if(response.status===400||response.status===401||response.status===403||response.status===404)pendingUpdate=null;
    throw Error("HTTP "+response.status+" — "+(detail||reason));
  }
- if(!result.id_pedido&&!result.ID_Pedido)throw Error("O fluxo ainda não confirmou o ID_Pedido; não é possível confirmar o envio.");
+ if(!result.id_pedido&&!result.ID_Pedido)throw Error("Pedido enviado com ID "+idPedido+", mas não foi devolvida confirmação; verifique a fila SharePoint.");
+ pendingUpdate=null;
  clearForm();show("consulta");alertMsg("Pedido de alteração recebido ("+(result.id_pedido||result.ID_Pedido)+"). Aguarda processamento no SharePoint. Use Actualizar para consultar os dados após a conclusão.");return
 }clearForm();render();show("consulta");alertMsg("Operação simulada. Os dados não foram enviados ao SharePoint.")}catch(e){
  const message=e.name==="AbortError"?"Tempo limite ao contactar o Power Automate. Verifica o estado do pedido no SharePoint antes de tentares novamente.":e instanceof TypeError?"Falha de comunicação com o Power Automate (URL, CORS ou rede). Verifica a ligação e não repitas o pedido antes de consultar a fila no SharePoint.":e.message;
- alertMsg("Não foi possível guardar: "+message,true)
+ alertMsg("Não foi possível confirmar o pedido"+(pendingUpdate?" (ID: "+pendingUpdate+")":"")+": "+message,true)
 }finally{busy=false;$("saveBtn").disabled=false}}
 function askDelete(id){pendingDelete=id;const r=records.find(x=>String(x.ID)===String(id));$("confirmText").textContent='Pretende eliminar "'+(r?.["Nome do Ficheiro"]||"este documento")+'"? A posição ficará livre.';$("confirmDialog").showModal()}
 async function deleteRow(){if(pendingDelete==null||busy)return;if(!isDemo()){pendingDelete=null;$("confirmDialog").close();alertMsg("Eliminação indisponível até configurar o fluxo protegido de escrita.",true);return}const id=pendingDelete;busy=true;$("confirmDelete").disabled=true;try{if(isDemo()){records=records.filter(r=>String(r.ID)!==String(id))}else{await api({action:"delete",id});const res=await api({action:"list"});records=res.records||[]}pendingDelete=null;$("confirmDialog").close();render();alertMsg(isDemo()?"Eliminação simulada.":"Registo eliminado.")}catch(e){alertMsg("Não foi possível eliminar: "+e.message,true);$("confirmDialog").close()}finally{busy=false;$("confirmDelete").disabled=false}}
