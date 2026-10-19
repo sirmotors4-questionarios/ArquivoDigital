@@ -357,16 +357,17 @@ $("backToShelf").addEventListener("click",()=>{const shelfButton=[...$("shelfMap
 $("clearShelf").addEventListener("click",()=>{selectedShelf=null;$("shelfDetail").hidden=true;renderMap()});
 $("shelfGroup").addEventListener("change",renderMap);
 $("toggleDeletions").addEventListener("click",()=>{
- const pane=$("eliminacoes"),opening=pane.hidden;
+ const pane=$("eliminacoes"),activeTable=$("activeDocumentsTable"),filters=$("consulta").querySelector(".filters"),count=$("filterCount");
+ const opening=pane.hidden;
  pane.hidden=!opening;
- $("toggleDeletions").textContent=opening?"▴ Ocultar histórico de eliminações":"▤ Ver histórico de eliminações";
- if(opening){
-  renderDeletions();
-  requestAnimationFrame(()=>pane.scrollIntoView({behavior:"smooth",block:"start"}));
- }else{
-  $("toggleDeletions").scrollIntoView({behavior:"smooth",block:"center"});
- }
+ activeTable.hidden=opening;
+ filters.hidden=opening;
+ count.hidden=opening;
+ $("toggleDeletions").textContent=opening?"↩ Voltar aos documentos":"▤ Ver histórico de eliminações";
+ $("toggleDeletions").setAttribute("aria-expanded",String(opening));
+ if(opening)renderDeletions();
 });
+$("toggleDeletions").setAttribute("aria-expanded","false");
 $("deletionSearch").addEventListener("input",renderDeletions);
 $("deletionState").addEventListener("change",renderDeletions);
 $("closeDeletion").addEventListener("click",()=> $("deletionDialog").close());
