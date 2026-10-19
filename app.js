@@ -160,7 +160,7 @@ function beginOperation(id,docId,target,previous,kind="update"){
  persistOperation();startOperationClock();updatePositionChoices();renderTable();
 }
 function alertMsg(text,error=false){const n=$("message");n.textContent=text;n.className=error?"error":"success";n.hidden=false;window.scrollTo({top:0,behavior:'smooth'});clearTimeout(alertMsg.timer);alertMsg.timer=setTimeout(()=>n.hidden=true,7000)}
-function show(view){document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!==view);document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===view));const t={dashboard:['Painel geral','Localize e acompanhe os documentos arquivados.'],mapa:['Mapa do arquivo','Explore prateleiras e posições físicas.'],consulta:['Consultar documentos','Pesquise, edite ou reposicione registos.'],eliminacoes:['Histórico de eliminações','Auditoria dos documentos removidos do arquivo.'],novo:[editID==null?'Novo registo':'Editar documento','Registe ou actualize a localização de um documento.']};$("pageTitle").textContent=t[view][0];$("pageSubtitle").textContent=t[view][1];window.scrollTo({top:0,behavior:'smooth'})}
+function show(view){if(view==="eliminacoes")view="consulta";document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!==view);document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===view));const t={dashboard:['Painel geral','Localize e acompanhe os documentos arquivados.'],mapa:['Mapa do arquivo','Explore prateleiras e posições físicas.'],consulta:['Consultar documentos','Pesquise, edite ou reposicione registos.'],novo:[editID==null?'Novo registo':'Editar documento','Registe ou actualize a localização de um documento.']};$("pageTitle").textContent=t[view][0];$("pageSubtitle").textContent=t[view][1];window.scrollTo({top:0,behavior:'smooth'})}
 function locationsOccupied(row,ignoreID){return validRecords().find(r=>positionKey(r)===positionKey(row)&&String(r.ID)!==String(ignoreID??''))}
 function unique(values){return [...new Set(values.map(trim).filter(Boolean))].sort(collator.compare)}
 function renderSelect(id,values,all){const input=$(id),old=input.value;input.replaceChildren(new Option(all,""));values.forEach(v=>input.add(new Option(v,v)));input.value=values.includes(old)?old:""}
@@ -356,6 +356,7 @@ $("resetForm").addEventListener("click",clearForm);
 $("backToShelf").addEventListener("click",()=>{const shelfButton=[...$("shelfMap").querySelectorAll(".shelf")].find(b=>b.querySelector("b")?.textContent===selectedShelf);scrollToArchiveElement(shelfButton||$("shelfMap"))});
 $("clearShelf").addEventListener("click",()=>{selectedShelf=null;$("shelfDetail").hidden=true;renderMap()});
 $("shelfGroup").addEventListener("change",renderMap);
+$("toggleDeletions").addEventListener("click",()=>{const pane=$("eliminacoes");pane.hidden=!pane.hidden;$("toggleDeletions").textContent=pane.hidden?"▤ Ver histórico de eliminações":"▴ Ocultar histórico de eliminações";if(!pane.hidden)renderDeletions()});
 $("deletionSearch").addEventListener("input",renderDeletions);
 $("deletionState").addEventListener("change",renderDeletions);
 $("closeDeletion").addEventListener("click",()=> $("deletionDialog").close());
