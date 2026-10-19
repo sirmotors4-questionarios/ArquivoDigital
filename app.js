@@ -7,6 +7,7 @@ const sample=[
 {"ID":2,"Departamento":"Contabilidade","Prateleira":"B3","Posição":2,"Nome do Ficheiro":"Balancetes mensais","Ano Início":2021,"Ano Fim":"","Período":"2021","Observações":"","Data de Cadastro":""},
 {"ID":3,"Departamento":"Recursos Humanos","Prateleira":"C6","Posição":3,"Nome do Ficheiro":"Processos individuais","Ano Início":2015,"Ano Fim":2019,"Período":"2015–2019","Observações":"","Data de Cadastro":""}
 ];
+let deletionRecords=[],deletionsLoaded=false;
 let records=[],editID=null,selectedShelf=null,pendingDelete=null,busy=false;
 let departments=["Tesouraria","Contabilidade","Recursos Humanos"],configuredShelves=[...shelves],responsaveis=[];
 const $=id=>document.getElementById(id);
@@ -159,7 +160,7 @@ function beginOperation(id,docId,target,previous,kind="update"){
  persistOperation();startOperationClock();updatePositionChoices();renderTable();
 }
 function alertMsg(text,error=false){const n=$("message");n.textContent=text;n.className=error?"error":"success";n.hidden=false;window.scrollTo({top:0,behavior:'smooth'});clearTimeout(alertMsg.timer);alertMsg.timer=setTimeout(()=>n.hidden=true,7000)}
-function show(view){document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!==view);document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===view));const t={dashboard:['Painel geral','Localize e acompanhe os documentos arquivados.'],mapa:['Mapa do arquivo','Explore prateleiras e posições físicas.'],consulta:['Consultar documentos','Pesquise, edite ou reposicione registos.'],novo:[editID==null?'Novo registo':'Editar documento','Registe ou actualize a localização de um documento.']};$("pageTitle").textContent=t[view][0];$("pageSubtitle").textContent=t[view][1];window.scrollTo({top:0,behavior:'smooth'})}
+function show(view){document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!==view);document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===view));const t={dashboard:['Painel geral','Localize e acompanhe os documentos arquivados.'],mapa:['Mapa do arquivo','Explore prateleiras e posições físicas.'],consulta:['Consultar documentos','Pesquise, edite ou reposicione registos.'],eliminacoes:['Histórico de eliminações','Auditoria dos documentos removidos do arquivo.'],novo:[editID==null?'Novo registo':'Editar documento','Registe ou actualize a localização de um documento.']};$("pageTitle").textContent=t[view][0];$("pageSubtitle").textContent=t[view][1];window.scrollTo({top:0,behavior:'smooth'})}
 function locationsOccupied(row,ignoreID){return validRecords().find(r=>positionKey(r)===positionKey(row)&&String(r.ID)!==String(ignoreID??''))}
 function unique(values){return [...new Set(values.map(trim).filter(Boolean))].sort(collator.compare)}
 function renderSelect(id,values,all){const input=$(id),old=input.value;input.replaceChildren(new Option(all,""));values.forEach(v=>input.add(new Option(v,v)));input.value=values.includes(old)?old:""}
@@ -190,9 +191,34 @@ updatePositionChoices();
 $("shelfSummary").replaceChildren(...[...new Set(all.map(x=>x["Prateleira"]))].slice(0,10).map(s=>{const n=el("button",undefined,"shelf-item");n.style.width="100%";n.style.textAlign="left";n.append(el("span",s,"pill"),el("span",all.filter(r=>r["Prateleira"]===s).length+" documento(s)","grow"));n.addEventListener("click",()=>openShelf(s));return n}));
 if(!all.length)$("shelfSummary").replaceChildren(el("p","Sem documentos registados.","empty"));
 const rec=$("recentDocs");rec.replaceChildren(...[...all].sort((a,b)=>num(b.ID)-num(a.ID)).slice(0,7).map(r=>{const n=el("div",undefined,"recent-item");const box=el("div",undefined,"grow");box.append(el("strong",r["Nome do Ficheiro"]),el("small",r.Departamento+" · "+r["Prateleira"]+" / "+r["Posição"]));n.append(el("span","▤","pill"),box);return n}));if(!all.length)rec.append(el("p","Nenhum documento registado.","empty"));
-renderMap();renderTable();
+renderMap();renderTable();renderDeletions();
 if(selectedShelf)showShelf(selectedShelf);
 $("syncState").textContent=isDemo()?"● Modo demonstração":("● Consulta configurada · Actualização "+(updateEndpoint?"configurada":"não configurada"));
+}
+function delField(r,...names){for(const k of names){const value=fieldByHeader(r,k);if(value!==undefined&&value!==null&&trim(value)!=="")return trim(value)}return ""}
+function delInfo(text,label){const p=text.split(/\r?\n/).find(x=>x.trim().toLowerCase().startsWith(label.toLowerCase()+":"));return p?trim(p.slice(p.indexOf(":")+1)):""}
+function renderDeletions(){
+ const root=$("deletionsBody");root.replaceChildren();
+ const info=$("deletionsFeedback");info.hidden=deletionsLoaded;
+ if(!deletionsLoaded)info.textContent="O portal está preparado. É necessário acrescentar o array deletions à resposta do fluxo API_ArquivoDigital_Consultar.";
+ const query=trim($("deletionSearch").value).toLowerCase(),status=$("deletionState").value;
+ const data=deletionRecords.filter(r=>{
+  const type=delField(r,"Tipo_Operacao","Tipo Operacao");if(type&&type.toLowerCase()!=="delete")return false;
+  if(status&&delField(r,"Estado").toLowerCase()!==status.toLowerCase())return false;
+  return !query||[delField(r,"Resultado_Operacao"),delField(r,"Responsavel","Responsável"),delField(r,"ID_Documento")].join(" ").toLowerCase().includes(query);
+ }).sort((a,b)=>delField(b,"Data_Conclusao","Data_Pedido").localeCompare(delField(a,"Data_Conclusao","Data_Pedido")));
+ $("deletionCount").textContent=data.length+" eliminação(ões)";
+ for(const r of data){
+  const detail=delField(r,"Resultado_Operacao");
+  const name=delInfo(detail,"Nome do ficheiro")||"Documento #"+delField(r,"ID_Documento");
+  const location=delInfo(detail,"Prateleira")?delInfo(detail,"Prateleira")+" · Posição "+delInfo(detail,"Posição"):"—";
+  const tr=el("tr");
+  for(const value of [delField(r,"Data_Conclusao","Data_Pedido")||"—",name,delField(r,"Responsavel","Responsável")||"—",location,delField(r,"Estado")||"—"])tr.append(el("td",value));
+  const action=el("td"),button=el("button","Ver detalhes","history-btn");button.type="button";
+  button.addEventListener("click",()=>{$("deletionDialogSubtitle").textContent=name;const target=$("deletionDetails");target.replaceChildren();for(const line of detail.split(/\r?\n/).map(trim).filter(x=>x&&!/^[-–—_\s]{3,}$/.test(x)))target.append(el("p",line,"history-entry"));if(!detail)target.append(el("p","Sem detalhes registados.","empty"));$("deletionDialog").showModal()});
+  action.append(button);tr.append(action);root.append(tr);
+ }
+ if(!data.length){const tr=el("tr"),cell=el("td",deletionsLoaded?"Nenhuma eliminação encontrada.":"A aguardar ligação à API.","empty");cell.colSpan=6;tr.append(cell);root.append(tr)}
 }
 function renderMap(){const group=$("shelfGroup").value;const map=$("shelfMap");map.replaceChildren();for(const s of configuredShelves.filter(s=>!group||s[0]===group)){const count=validRecords().filter(r=>r["Prateleira"]===s).length;const btn=el("button",undefined,"shelf"+(count>0?" occupied":"")+(selectedShelf===s?" selected":""));btn.append(el("b",s),el("span",count+" posição(ões) ocupada(s)"));btn.addEventListener("click",()=>openShelf(s));map.append(btn)}}
 function scrollToArchiveElement(node){
@@ -237,12 +263,13 @@ function updatePositionChoices(preferred="") {
 function clearForm(){editID=null;$("docForm").reset();updatePositionChoices();$("formTitle").textContent="Registar documento";$("saveBtn").textContent="Guardar registo"}
 function editRow(id){if(pendingFor(id)){alertMsg("Este documento já tem uma actualização pendente. Aguarde a conclusão.",true);return}const r=records.find(x=>String(x.ID)===String(id));if(!r)return;editID=r.ID;const f=$("docForm").elements;f.nome.value=trim(r["Nome do Ficheiro"]);f.departamento.value=trim(r.Departamento);f.prateleira.value=trim(r["Prateleira"]);updatePositionChoices(String(r["Posição"]));f.mesInicio.value=trim(fieldByHeader(r,"Mês Início"));f.anoInicio.value=r["Ano Início"];f.mesFim.value=trim(fieldByHeader(r,"Mês Fim"));f.anoFim.value=r["Ano Fim"]||"";f.observacoes.value=r.Observações||"";f.responsavel.value="";$("formTitle").textContent="Editar / Reposicionar documento";$("saveBtn").textContent="Guardar alterações";show("novo")}
 async function api(body){if(isDemo())throw Error("API não configurada");const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),CFG.timeoutMs||20000);try{const res=await fetch(endpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal:controller.signal});let parsed={};try{parsed=await res.json()}catch{}if(!res.ok||parsed.ok===false){const msg=parsed.code==="POSITION_OCCUPIED"?"Esta posição já está ocupada. Escolha outra.":parsed.message||"Erro na operação ("+res.status+").";throw Error(msg)}return parsed}finally{clearTimeout(timeout)}}
-async function load(){if(busy)return;busy=true;$("refreshBtn").disabled=true;try{if(isDemo()){if(!load.hasDemo)records=sample.map(x=>({...x}));load.hasDemo=true}else{const response=await api({action:"list"});if(!Array.isArray(response.records))throw Error("A resposta da API não contém a lista de documentos.");records=response.records;
+async function load(){if(busy)return;busy=true;$("refreshBtn").disabled=true;try{if(isDemo()){if(!load.hasDemo)records=sample.map(x=>({...x}));load.hasDemo=true;deletionRecords=[];deletionsLoaded=false}else{const response=await api({action:"list"});if(!Array.isArray(response.records))throw Error("A resposta da API não contém a lista de documentos.");records=response.records;
 if(!Array.isArray(response.departments)||!Array.isArray(response.shelves))throw Error("A API deve devolver departments e shelves a partir das tabelas da folha Listas.");
 departments=unique(response.departments.map(v=>typeof v==="string"?v:v.Departamento));
 configuredShelves=unique(response.shelves.map(v=>typeof v==="string"?v:v.Prateleira).map(x=>x.toUpperCase())).filter(s=>/^[A-Z][1-6]$/.test(s));
 if(!Array.isArray(response.responsaveis))throw Error("A resposta do Power Automate não contém o array responsaveis.");
 responsaveis=unique(response.responsaveis.map(v=>typeof v==="string"?v:(v?.["Responsável"]??v?.Responsavel??"")));
+deletionsLoaded=Array.isArray(response.deletions);deletionRecords=deletionsLoaded?response.deletions:[];
 }render()}catch(e){alertMsg("Não foi possível carregar o arquivo: "+e.message,true)}finally{busy=false;$("refreshBtn").disabled=false}}
 async function save(ev){ev.preventDefault();if(!isDemo()&&!updateEndpoint){alertMsg("Configure primeiro a URL HTTP de pedidos em Ligar SharePoint.",true);return}if(busy)return;const f=$("docForm").elements;const yr=num(f.anoInicio.value),end=f.anoFim.value?num(f.anoFim.value):"";if(end&&end<yr){alertMsg("O ano final não pode ser anterior ao ano inicial.",true);return}if(!end&&f.mesFim.value){alertMsg("Indique o Ano Fim quando seleccionar um Mês Fim.",true);return}const mi=months.indexOf(f.mesInicio.value),mf=months.indexOf(f.mesFim.value);if(end===yr&&mi>=0&&mf>=0&&mf<mi){alertMsg("O mês final não pode ser anterior ao mês inicial no mesmo ano.",true);return}const row={"Nome do Ficheiro":trim(f.nome.value),"Departamento":trim(f.departamento.value),"Prateleira":trim(f.prateleira.value),"Posição":num(f.posicao.value),"Mês Início":trim(f.mesInicio.value),"Ano Início":yr,"Mês Fim":trim(f.mesFim.value),"Ano Fim":end,"Observações":trim(f.observacoes.value),"Responsável":trim(f.responsavel.value)};if(!configuredShelves.includes(row["Prateleira"])||!departments.includes(row.Departamento)||!Number.isSafeInteger(row["Posição"])||row["Posição"]<1){alertMsg("Indique uma prateleira válida e uma posição inteira maior ou igual a 1.",true);return}const reserved=[...activeOperations.values()].find(op=>String(op.docId)!==String(editID)&&op.target["Prateleira"]===row["Prateleira"]&&op.target["Posição"]===row["Posição"]);
  if(reserved){alertMsg("Esta posição já está reservada por outro pedido pendente.",true);return}
@@ -329,6 +356,9 @@ $("resetForm").addEventListener("click",clearForm);
 $("backToShelf").addEventListener("click",()=>{const shelfButton=[...$("shelfMap").querySelectorAll(".shelf")].find(b=>b.querySelector("b")?.textContent===selectedShelf);scrollToArchiveElement(shelfButton||$("shelfMap"))});
 $("clearShelf").addEventListener("click",()=>{selectedShelf=null;$("shelfDetail").hidden=true;renderMap()});
 $("shelfGroup").addEventListener("change",renderMap);
+$("deletionSearch").addEventListener("input",renderDeletions);
+$("deletionState").addEventListener("change",renderDeletions);
+$("closeDeletion").addEventListener("click",()=> $("deletionDialog").close());
 for(const id of ["filterSearch","filterDept","filterShelf","filterYear","filterMonth"])$(id).addEventListener("input",renderTable);
 $("abortDelete").addEventListener("click",()=>{$("confirmDialog").close();pendingDelete=null});
 $("confirmDelete").addEventListener("click",deleteRow);
