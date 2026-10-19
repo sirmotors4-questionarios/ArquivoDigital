@@ -108,7 +108,7 @@ function rowOperationStatus(r){
  const cell=el("div",undefined,"row-processing");
  const clock=el("span","◷ "+elapsedTime(Date.now()-op.started),"row-clock");
  clock.dataset.processingClock=String(r.ID);
- cell.append(clock,el("span",op.phase==="uncertain"?"A verificar…":"A processar…"));
+ cell.append(clock,el("span",op.phase==="uncertain"?"A verificar…":op.kind==="delete"?"A eliminar…":"A processar…"));
  return cell;
 }
 function tickOperationClock(){
@@ -142,7 +142,7 @@ async function checkOperations(){
    const baseline=trim(fieldByHeader(op.previous,"Data de Actualização"));
    const current=found?trim(fieldByHeader(found,"Data de Actualização")):"";
    const freshEvidence=op.kind==="create"?!!found:(wasDifferent||(baseline!==current&&Boolean(current)));
-   if(found&&rowMatchesUpdate(found,op.target)&&freshEvidence){
+   if((op.kind==="delete"&&!found)||(op.kind!=="delete"&&found&&rowMatchesUpdate(found,op.target)&&freshEvidence)){
     activeOperations.delete(key);changed=true;
    }
   }
@@ -208,7 +208,7 @@ function openShelf(s){
   requestAnimationFrame(()=>scrollToArchiveElement($("shelfDetail")));
 }
 function showShelf(s){$("shelfDetail").hidden=false;$("selectedShelf").textContent="Prateleira "+s;const root=$("shelfDocuments");root.replaceChildren();const found=sorted(validRecords().filter(r=>r["Prateleira"]===s));if(!found.length){root.append(el("p","Nenhuma posição ocupada nesta prateleira.","empty"));return}const tbl=el("table"),head=el("thead"),body=el("tbody");const hr=el("tr");["Posição","Nome do ficheiro","Departamento","Período","Acções"].forEach(h=>hr.append(el("th",h)));head.append(hr);found.forEach(r=>{const tr=el("tr");[r["Posição"],r["Nome do Ficheiro"],r.Departamento,r["Período"]||computedPeriod(r)].forEach(t=>tr.append(el("td",t)));const td=el("td");td.append(actions(r));tr.append(td);body.append(tr)});tbl.append(head,body);root.append(tbl)}
-function actions(r){const span=el("div",undefined,"actions");const edit=el("button","Editar / Mover");edit.disabled=!!pendingFor(r.ID);if(edit.disabled)edit.title="Aguarde a conclusão da actualização deste documento.";edit.addEventListener("click",()=>editRow(r.ID));const remove=el("button","Eliminar","remove");remove.addEventListener("click",()=>askDelete(r.ID));span.append(edit,remove);return span}
+function actions(r){const span=el("div",undefined,"actions");const edit=el("button","Editar / Mover");edit.disabled=!!pendingFor(r.ID);if(edit.disabled)edit.title="Aguarde a conclusão da actualização deste documento.";edit.addEventListener("click",()=>editRow(r.ID));const remove=el("button","Eliminar","remove");remove.disabled=!!pendingFor(r.ID);if(remove.disabled)remove.title="Operação pendente para este documento.";remove.addEventListener("click",()=>askDelete(r.ID));span.append(edit,remove);return span}
 function computedPeriod(r){const a=trim(r["Ano Início"]),b=trim(r["Ano Fim"]);const mi=trim(fieldByHeader(r,"Mês Início")),mf=trim(fieldByHeader(r,"Mês Fim"));if(!a)return "—";const first=(mi?mi+"/":"")+a;if(!b)return first;const last=(mf?mf+"/":"")+b;return first===last?first:first+" – "+last}
 function monthMatchesRecord(r,month,selectedYear){
  const startYear=num(fieldByHeader(r,"Ano Início"));
@@ -276,8 +276,48 @@ async function save(ev){ev.preventDefault();if(!isDemo()&&!updateEndpoint){alert
  operationStatus(pendingFor(requestDocId)?"uncertain":"error","Estado do pedido","Verifique o resultado no SharePoint.",idPedido);
  alertMsg("Não foi possível confirmar o pedido ("+idPedido+"): "+message,true)
 }finally{busy=false;$("saveBtn").disabled=false}}
-function askDelete(id){pendingDelete=id;const r=records.find(x=>String(x.ID)===String(id));$("confirmText").textContent='Pretende eliminar "'+(r?.["Nome do Ficheiro"]||"este documento")+'"? A posição ficará livre.';$("confirmDialog").showModal()}
-async function deleteRow(){if(pendingDelete==null||busy)return;if(!isDemo()){pendingDelete=null;$("confirmDialog").close();alertMsg("Eliminação indisponível até configurar o fluxo protegido de escrita.",true);return}const id=pendingDelete;busy=true;$("confirmDelete").disabled=true;try{if(isDemo()){records=records.filter(r=>String(r.ID)!==String(id))}else{await api({action:"delete",id});const res=await api({action:"list"});records=res.records||[]}pendingDelete=null;$("confirmDialog").close();render();alertMsg(isDemo()?"Eliminação simulada.":"Registo eliminado.")}catch(e){alertMsg("Não foi possível eliminar: "+e.message,true);$("confirmDialog").close()}finally{busy=false;$("confirmDelete").disabled=false}}
+function askDelete(id){
+ if(pendingFor(id)){alertMsg("Este documento já tem um pedido pendente.",true);return}
+ const r=records.find(x=>String(x.ID)===String(id));if(!r)return;
+ pendingDelete=id;
+ $("confirmText").textContent='Documento: '+r["Nome do Ficheiro"]+' · '+r.Departamento+' · '+r["Prateleira"]+' / Posição '+r["Posição"]+'. Confirmas a eliminação deste registo?';
+ const select=$("deleteResponsavel");select.replaceChildren(new Option("Seleccionar responsável",""));
+ responsaveis.forEach(v=>select.add(new Option(v,v)));
+ $("deleteMotivo").value="";
+ $("confirmDialog").showModal();
+}
+async function deleteRow(){
+ if(pendingDelete==null||busy)return;
+ const id=pendingDelete,record=records.find(x=>String(x.ID)===String(id));
+ const responsavel=trim($("deleteResponsavel").value),motivo=trim($("deleteMotivo").value);
+ if(!responsavel||!responsaveis.includes(responsavel)){alertMsg("Selecciona o responsável pela eliminação.",true);return}
+ if(!record){alertMsg("Documento não encontrado na consulta.",true);return}
+ if(pendingFor(id)){alertMsg("Documento com operação pendente.",true);return}
+ if(!isDemo()&&!updateEndpoint){alertMsg("Configura a URL HTTP de pedidos em Ligar SharePoint.",true);return}
+ busy=true;$("confirmDelete").disabled=true;
+ const pedido=crypto.randomUUID(),previous={...record};
+ try{
+  if(isDemo()){records=records.filter(r=>String(r.ID)!==String(id));pendingDelete=null;$("confirmDialog").close();render();alertMsg("Eliminação simulada.")}
+  else{
+   beginOperation(pedido,id,{"Responsável":responsavel,"Motivo":motivo},previous,"delete");
+   pendingDelete=null;$("confirmDialog").close();show("consulta");
+   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),CFG.timeoutMs||20000);
+   let res;
+   try{res=await fetch(updateEndpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete",id,id_pedido:pedido,record:{"Responsável":responsavel,"Motivo":motivo}}),signal:controller.signal})}
+   finally{clearTimeout(timer)}
+   const raw=await res.text();let result={};
+   try{result=raw?JSON.parse(raw):{}}catch{throw Error("HTTP "+res.status+": resposta não é JSON válido.")}
+   if(!res.ok||result.ok===false){
+    if([400,401,403,404].includes(res.status)){activeOperations.delete(String(id));persistOperation();renderTable()}
+    throw Error("HTTP "+res.status+" — "+(result.message||"Não foi possível confirmar a recepção."));
+   }
+   if(!result.id_pedido&&!result.ID_Pedido)throw Error("Pedido enviado, mas sem confirmação. Consulta a fila SharePoint pelo ID "+pedido+".");
+  }
+ }catch(e){
+  if(pendingFor(id)){pendingFor(id).phase="uncertain";persistOperation();renderTable()}
+  alertMsg("Pedido de eliminação "+pedido+": "+(e.name==="AbortError"?"Tempo de resposta excedido. Verifica a fila SharePoint antes de repetir.":e.message),true)
+ }finally{busy=false;$("confirmDelete").disabled=false}
+}
 document.querySelectorAll("[data-view]").forEach(btn=>btn.addEventListener("click",()=>{if(btn.dataset.view==="novo")clearForm();show(btn.dataset.view)}));
 document.querySelectorAll("[data-go]").forEach(btn=>btn.addEventListener("click",()=>show(btn.dataset.go)));
 $("newBtn").addEventListener("click",()=>{clearForm();show("novo")});
