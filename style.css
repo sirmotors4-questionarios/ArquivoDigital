@@ -29,3 +29,6 @@
 .pending-create-row{background:#fffdf3}.pending-create-row td{border-bottom:1px solid #f0dfa9}.pending-create-cell{color:#855c04;font-weight:700}.pending-create-row .row-processing{display:flex;align-items:center;color:#916300;font-variant-numeric:tabular-nums;font-size:12px}
 
 #eliminacoes .filters{margin-bottom:18px}#deletionDialog .history-entry{background:white;border:1px solid #e2e8f0;padding:10px;border-radius:8px;margin:7px 0}
+
+/* Garante que os detalhes aparecem apenas quando o utilizador abre o histórico. */
+#eliminacoes[hidden]{display:none!important}#eliminacoes:not([hidden]){display:block;scroll-margin-top:24px}
