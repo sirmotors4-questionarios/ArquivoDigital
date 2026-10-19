@@ -27,3 +27,5 @@
 .change-arrow{font-weight:900;color:#64748b}.change-after{background:#e5f6eb;color:#166b3b;border:1px solid #bfe8cc;padding:3px 8px;border-radius:6px;font-weight:650}
 
 .pending-create-row{background:#fffdf3}.pending-create-row td{border-bottom:1px solid #f0dfa9}.pending-create-cell{color:#855c04;font-weight:700}.pending-create-row .row-processing{display:flex;align-items:center;color:#916300;font-variant-numeric:tabular-nums;font-size:12px}
+
+#eliminacoes .filters{margin-bottom:18px}#deletionDialog .history-entry{background:white;border:1px solid #e2e8f0;padding:10px;border-radius:8px;margin:7px 0}
