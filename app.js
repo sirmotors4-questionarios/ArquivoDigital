@@ -356,7 +356,17 @@ $("resetForm").addEventListener("click",clearForm);
 $("backToShelf").addEventListener("click",()=>{const shelfButton=[...$("shelfMap").querySelectorAll(".shelf")].find(b=>b.querySelector("b")?.textContent===selectedShelf);scrollToArchiveElement(shelfButton||$("shelfMap"))});
 $("clearShelf").addEventListener("click",()=>{selectedShelf=null;$("shelfDetail").hidden=true;renderMap()});
 $("shelfGroup").addEventListener("change",renderMap);
-$("toggleDeletions").addEventListener("click",()=>{const pane=$("eliminacoes");pane.hidden=!pane.hidden;$("toggleDeletions").textContent=pane.hidden?"▤ Ver histórico de eliminações":"▴ Ocultar histórico de eliminações";if(!pane.hidden)renderDeletions()});
+$("toggleDeletions").addEventListener("click",()=>{
+ const pane=$("eliminacoes"),opening=pane.hidden;
+ pane.hidden=!opening;
+ $("toggleDeletions").textContent=opening?"▴ Ocultar histórico de eliminações":"▤ Ver histórico de eliminações";
+ if(opening){
+  renderDeletions();
+  requestAnimationFrame(()=>pane.scrollIntoView({behavior:"smooth",block:"start"}));
+ }else{
+  $("toggleDeletions").scrollIntoView({behavior:"smooth",block:"center"});
+ }
+});
 $("deletionSearch").addEventListener("input",renderDeletions);
 $("deletionState").addEventListener("change",renderDeletions);
 $("closeDeletion").addEventListener("click",()=> $("deletionDialog").close());
